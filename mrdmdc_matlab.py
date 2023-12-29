@@ -242,6 +242,14 @@ class DMDc(DMDBase):
 
         self._modes_activation_bitmask_proxy = None
 
+        self.level = None            # level of recursion
+        self.bin_num = None        # time bin number
+        self.bin_size = None      # time bin size
+        self.start = None          # starting index
+        self.stop = None # stopping index
+        self.step = None              # step size
+        self.dato = None
+
     @property
     def svd_rank_omega(self):
         return self.operator._svd_rank_omega
@@ -440,7 +448,7 @@ row_tot = D.shape[0]
 column_tot = D.shape[1]
 
 
-training_mode = 0.75
+training_mode = 0.999
 
 
 column_train = int(column_tot * training_mode)
@@ -450,8 +458,8 @@ D_train = D[:,:int((training_mode*column_tot))]
 U_train = U[:,:int(training_mode*column_tot)]
 
 # testing mod
-D_test = D[0 , D_train.shape[1]:]
-U_test = U[0 , U_train.shape[1]:]
+D_test = D[:,D_train.shape[1]:]
+U_test = U[:,U_train.shape[1]:]
 #for the testing mode we take che rest of array that remain from the division for the training 
 
 
@@ -487,7 +495,6 @@ make_plot(D_train.T, x=x_train, y=t_train, title = 'Training data')
 
 
 
-dmdc0 = DMDc(svd_rank=0) 
 
 
 
@@ -530,15 +537,12 @@ def mrdmdc(D, U, level=0, bin_num=0, offset=0, max_levels=20, max_cycles=1):
                                                                ## una nuova matrice con solo i valori considerati.
     _U = U[:,::(step)]
     
-         
-    X = _D[:,:-1]                                              ## in X considera tutti i valori (di _D) escludendo l'ultima 
-                                                               ## colonna.
-    
-    Y = _D[:,1:]                                               ## in Y considera tutti i valori (di _D) escludendo la prima 
-                                                               ## colonna.
     D0 = _D[:,:]
-    U0 = _U[:,:-1]   #DA CONTROLLARE SE FARE U[:,:-1]
-    dmdc0.fit(D0,U0)
+    U0 = _U[:,1:]   #DA CONTROLLARE SE FARE U[:,:-1]
+
+    dmdc = DMDc(svd_rank=0) 
+
+    dmdc.fit(D0,U0)
     
 
     '''
@@ -568,35 +572,35 @@ def mrdmdc(D, U, level=0, bin_num=0, offset=0, max_levels=20, max_cycles=1):
     '''
                                                                
 
-    dato = dmdc0.reconstructed_data()
+    dato = dmdc.reconstructed_data()
 
 
 
 
-    node = type('Node', (object,), {})()
-    node.level = level            # level of recursion
-    node.bin_num = bin_num        # time bin number
-    node.bin_size = bin_size      # time bin size
-    node.start = offset           # starting index
-    node.stop = offset + bin_size # stopping index
-    node.step = step              # step size
-    node.dato = dato
+    #node = type('Node', (object,), {})()
+    dmdc.level = level            # level of recursion
+    dmdc.bin_num = bin_num        # time bin number
+    dmdc.bin_size = bin_size      # time bin size
+    dmdc.start = offset           # starting index
+    dmdc.stop = offset + bin_size # stopping index
+    dmdc.step = step              # step size
+    dmdc.dato = dato
 
+    '''
     node.mu = dmdc0.eigs
     node.phi = dmdc0.modes
     node.A = dmdc0._Atilde
     node.B = dmdc0.B
     node._B = dmdc0._B
     node.psi = dmdc0.dynamics
-    #node.X = X
-    
+    '''
 
 
-    nodes = [node]
+    nodes = [dmdc]
 
 
     if level < max_levels:
-        split = ceil(bin_size / 2) # where to split           ## ceil(x) approssima per eccesso x
+        split = floor(bin_size / 2) # where to split           ## ceil(x) approssima per eccesso x
         nodes += mrdmdc(
             D[:,:split],
             U[:,:split],
@@ -651,11 +655,11 @@ def dimensionamento(dataset, column):
         an example a matrix 40x4 become 40x7160 
     '''
     # Calcola il fattore di ripetizione per ogni colonna
-    fattore_ripetizione = column // dataset.shape[1]
+    fattore_ripetizione = math.ceil(column / dataset.shape[1])    #approssimo per eccesso 
     # Espandi le colonne della matrice
     matrice_finale = np.repeat(dataset, fattore_ripetizione, axis=1)
     # Riduci le colonne al numero desiderato
-    matrice_finale = matrice_finale[:, :column]
+    matrice_finale = matrice_finale[:, :column]         #qui mi faccio il troncamento
     
     return matrice_finale
 
@@ -670,16 +674,8 @@ def iteration_level(nodes):
     for n in nodes:
         if n.level > level:
             level = n.level
-    return int(level) + 1
+    return int(level) 
 
-
-
-
-
-
-for i in range(0 , iteration_level(nodes)):
-    nodes_relevant = [n for n in nodes if n.level == i]
-'''we reconstruct the matrix only with the 512 final nodes, so the nodes that are in the final level'''
 
 
 
@@ -696,15 +692,22 @@ In questo caso ad esempio con i dati di train vengono inseriti prima il nodo 9 e
 massimo di ricorsione che si trovano con l'indice più piccolo tra i nodi con il livello massimo
 '''
 
-for i in range(0 , iteration_level(nodes)):
-    D_mrdmdc = np.hstack([n.dato for n in nodes if n.level == i])
+D_mrdmdc = np.zeros([row_tot, column_train], dtype = complex)
+
+for i in range(0 , iteration_level(nodes) + 1):
+    level_reconstruction = np.hstack(n.dato for n in nodes if n.level == i)
+    level_rec_ridimensionato = dimensionamento(level_reconstruction, column_train)
+    D_mrdmdc += level_rec_ridimensionato 
+    D_mrdmdc = D_mrdmdc / 2
     x = D_mrdmdc.shape[0]
-    D_mrdmdc_ridimensionata = dimensionamento(D_mrdmdc, column_train)
-    y = D_mrdmdc_ridimensionata.shape[1]
+    y = D_mrdmdc.shape[1]
     x = np.linspace(0, x, x)
     y = np.linspace(0, y, y)
-    #make_plot(D_mrdmdc_ridimensionata.T, x=x, y=y, title='levels 0-' + str(i), figsize=(7.5, 5))
-    #confronto(D_train, D_mrdmdc_ridimensionata)
+    #make_plot(D_mrdmdc.T, x=x, y=y, title='levels 0-' + str(i), figsize=(7.5, 5))
+    #confronto(D_train, D_mrdmdc)
+    if (level_reconstruction.shape[1] == D_train.shape[1]):
+        break
+
 
 
 
@@ -719,7 +722,7 @@ plt.colorbar()
 
 plt.subplot(122)
 plt.title("Reconstructed system")
-plt.pcolor(D_mrdmdc_ridimensionata.real.T)
+plt.pcolor(D_mrdmdc.real.T)
 plt.colorbar()
 
 plt.show()
@@ -754,51 +757,112 @@ def R2(y_true, y_pred):
     return r2_value
 
 
-#D_mrdmdc_ridimensionata = dimensionamento(D_mrdmdc)
 
 print("Errore MSE:")
-print((mean_squared_error(D_mrdmdc_ridimensionata.T,D_train.T)))
+print((mean_squared_error(D_mrdmdc.T,D_train.T)))
 print ("errore MAPE: ")
-print (MAPE(D_mrdmdc_ridimensionata.T , D_train.T),"%")
+print (MAPE(D_mrdmdc.T , D_train.T),"%")
 print ("errore MAE: ")
-print(MAE(D_mrdmdc_ridimensionata.T , D_train.T))
+print(MAE(D_mrdmdc.T , D_train.T))
 print ("errore RMSE: ")
-print(RMSE(D_mrdmdc_ridimensionata.T , D_train.T))
+print(RMSE(D_mrdmdc.T , D_train.T))
 print ("errore R2: ")
-print(R2(D_mrdmdc_ridimensionata.T , D_train.T))
+print(R2(D_mrdmdc.T , D_train.T))
 
 
 
 plt.figure()
 plt.plot(t_train, D_train.real[0,:], 'b', label='Misura')
-plt.plot(t_train, D_mrdmdc_ridimensionata.real[0,:], 'g', label='mrDMD')
+plt.plot(t_train, D_mrdmdc.real[0,:], 'g', label='mrDMD')
 plt.legend()
 plt.show()
 
 plt.figure()
-error=np.array(D_train) - np.array(D_mrdmdc_ridimensionata)
+error=np.array(D_train) - np.array(D_mrdmdc)
 plt.plot(t_train, error.real[0,:], 'b', label='Diff')
 plt.legend()
 plt.show()
 
 
 
+'''
+vediamo di mostrare le B e le A_tilde per ogni livello mediate
+for level in range (0, iteration_level(nodes) + 1):
+    nodes_level_B = []
+    nodes_level_A_tilde = []
+    for n in nodes:
+        if n.level == level:
+            nodes_level_B.append(n.B)
+            nodes_level_A_tilde.append(n._Atilde._Atilde)       #ho messo due volte _Atilde perchè la prima assegnazione è l'oggetto dmdunknownoperator
+
+    level_B = sum(nodes_level_B)
+    level_B = level_B / len(nodes_level_B)
+    x = np.linspace(0, level_B.shape[0], level_B.shape[0])
+    y = np.linspace(0, level_B.shape[1], level_B.shape[1])
+    make_plot(level_B.T, x=x, y=y, title = '_B level:' + str(level))    #self.B
+
+    #la parte dell'A_tilde funziona solo se si tronca (cioè svd_rank = 0)
+    level_A_tilde = sum(nodes_level_A_tilde)
+    level_A_tilde = level_A_tilde / len(nodes_level_A_tilde)
+    x = np.linspace(0, level_A_tilde.shape[0], level_A_tilde.shape[0])
+    y = np.linspace(0, level_A_tilde.shape[1], level_A_tilde.shape[1])
+    make_plot(level_A_tilde, x=x, y=y, title = 'A_tilde level:' + str(level))   #self._Atilde
+    '''
 
 
-'''per il test facciamo che facciamo il reconstruct data passandogli noi i dati, vediamo cosa fa'''
-reconstructed_data_test = dmdc0.reconstructed_data(U_test)
-x = reconstructed_data_test.shape[0]
-#y = dato_test.shape[1]   
+
+'''vediamo di mostrare le A_tilde e le B dei nodi'''
+for level in range (0, iteration_level(nodes) + 1):
+    for node in nodes:
+        if node.level == level:
+            x = np.linspace(0, node.B.shape[0], node.B.shape[0])
+            y = np.linspace(0, node.B.shape[1], node.B.shape[1])
+            make_plot(node.B.T, x=x, y=y, title='B level: ' + str(level))
+
+            x = np.linspace(0, node._Atilde._Atilde.shape[0], node._Atilde._Atilde.shape[0])
+            y = np.linspace(0, node._Atilde._Atilde.shape[1], node._Atilde._Atilde.shape[1])
+            make_plot(node._Atilde._Atilde.T, x=x, y=y, title='A_tilde level: ' + str(level))
+
+
+
+
+'''Facciamo una funzione per controllare qual è il bin_size più vicino alla U_test'''
+
+def choose_bin(U_test, nodes):
+    for i in range(0, len(nodes)):
+        if (nodes[i].bin_size >= U_test.shape[1]):
+            node = nodes[i]
+    return node
+
+'''A questo punto vado a campionare la U_test e la passo a reconstructed_data'''
+
+dmdc_reconstruct = choose_bin(U_test, nodes)
+U_test = dimensionamento(U_test, dmdc_reconstruct.bin_size)
+U_test_sub = U_test[:,::dmdc_reconstruct.step]
+
+nodes_reconstruct = []
+for node in nodes:
+    if node.level == dmdc_reconstruct.level:
+        nodes_reconstruct.append(node)
+
+#rec = np.zeros([row_tot, column_train], dtype = complex)
+insieme_reconstruct = []
+
+for node in nodes_reconstruct:
+    reconstructed_data_test = node.reconstructed_data(U_test_sub[:,1:])
+    insieme_reconstruct.append(reconstructed_data_test)      #append function add the data passed to array
+
+reconstruct = np.hstack(insieme_reconstruct)
+
+#reconstruct = dimensionamento(reconstruct, column_train)
+x = reconstruct.shape[0]
+y = reconstruct.shape[1]   
 x = np.linspace(0, x, x)
-#y = np.linspace(0, y, y)
-plt.figure(figsize=(16, 6)) 
-plt.plot(reconstructed_data_test.T)
-plt.show()
+y = np.linspace(0, y, y)
+make_plot(reconstruct.T, x=x, y=y, title='levels 0-' + str(i), figsize=(7.5, 5))
+confronto(D_train, reconstruct)
 
 
 
 
 
-from pydmd import MrDMD
-dmd0 = MrDMD()
-dmd0.partial_reconstructed_data
