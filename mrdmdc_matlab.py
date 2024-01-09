@@ -41,6 +41,7 @@ from pydmd.dmdbase import DMDBase
 from pydmd.dmdoperator import DMDOperator
 from pydmd.snapshots import Snapshots
 from pydmd.utils import compute_svd, compute_tlsq
+from pydmd.plotter import plot_eigs_mrdmd
 
 
 class DMDControlOperator(DMDOperator):
@@ -448,7 +449,7 @@ row_tot = D.shape[0]
 column_tot = D.shape[1]
 
 
-training_mode = 0.999
+training_mode = 0.9
 
 
 column_train = int(column_tot * training_mode)
@@ -475,17 +476,17 @@ t_train = np.linspace(0, int(dt * column_train), int(dt * column_train))
 
 
 
-def make_plot(X, x=None, y=None, figsize=(12, 8), title=''):
+def make_plot(X, x=None, y=None, figsize=(12, 8), title='', xlabel='Delayed State', ylabel='Time (minute)', vmin = None, vmax = None):
     """
     Plot of the data X
     """
     plt.figure(figsize=figsize)
     plt.title(title)
     X = np.real(X)
-    CS = plt.pcolor(x, y, X)
+    CS = plt.pcolormesh(x, y, X, vmin = vmin, vmax = vmax, cmap= "RdBu_r")
     cbar = plt.colorbar(CS)
-    plt.xlabel('Delayed State')
-    plt.ylabel('Time (minute)')
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
     plt.show()
 
 
@@ -499,7 +500,7 @@ make_plot(D_train.T, x=x_train, y=t_train, title = 'Training data')
 
 
 
-def mrdmdc(D, U, level=0, bin_num=0, offset=0, max_levels=20, max_cycles=1):
+def mrdmdc(D, U, level=0, bin_num=0, offset=0, max_levels=20, max_cycles=10):
     """Compute the multi-resolution DMD on the dataset `D`, returning a list of nodes
     in the hierarchy. Each node represents a particular "time bin" (window in time) at
     a particular "level" of the recursion (time scale). The node is an object consisting
@@ -703,8 +704,8 @@ for i in range(0 , iteration_level(nodes) + 1):
     y = D_mrdmdc.shape[1]
     x = np.linspace(0, x, x)
     y = np.linspace(0, y, y)
-    #make_plot(D_mrdmdc.T, x=x, y=y, title='levels 0-' + str(i), figsize=(7.5, 5))
-    #confronto(D_train, D_mrdmdc)
+    make_plot(D_mrdmdc.T, x=x, y=y, title='levels 0-' + str(i), figsize=(7.5, 5))
+    confronto(D_train, D_mrdmdc)
     if (level_reconstruction.shape[1] == D_train.shape[1]):
         break
 
@@ -773,7 +774,7 @@ print(R2(D_mrdmdc.T , D_train.T))
 
 plt.figure()
 plt.plot(t_train, D_train.real[0,:], 'b', label='Misura')
-plt.plot(t_train, D_mrdmdc.real[0,:], 'g', label='mrDMD')
+plt.plot(t_train, D_mrdmdc.real[0,:], 'g', label='mrDMDc')
 plt.legend()
 plt.show()
 
@@ -785,8 +786,47 @@ plt.show()
 
 
 
+
+
+
+
 '''
 vediamo di mostrare le B e le A_tilde per ogni livello mediate
+'''
+
+'''mi faccio restituire il valore massimo di B rispetto a tutti i nodi'''
+'''
+def max_value(nodes):
+    max_value_B = np.max([np.max(node.B) for node in nodes])
+    max_value_A_tilde = np.max([np.max(node._Atilde._Atilde) for node in nodes])
+    min_value_B = np.min([np.max(node.B) for node in nodes])
+    min_value_A_tilde = np.min([np.max(node._Atilde._Atilde) for node in nodes])
+
+    #scelta scala B
+    if (max_value_B >= -(min_value_B)):
+        scale_B = max_value_B
+    else:
+        scale_B = -min_value_B
+
+#scelta scala A_tilde
+if (max_value_A_tilde >= -(min_value_A_tilde)):
+    scale_A_tilde = max_value_A_tilde
+else:
+    scale_A_tilde = -min_value_A_tilde
+'''
+
+
+def max_value(matrix):
+    max_value = np.max([np.max(matrix)])
+    min_value = np.min([np.max(matrix)])
+    if (max_value >= -(min_value)):
+        scale = max_value
+    else:
+        scale = -min_value
+    return scale
+
+
+
 for level in range (0, iteration_level(nodes) + 1):
     nodes_level_B = []
     nodes_level_A_tilde = []
@@ -795,33 +835,112 @@ for level in range (0, iteration_level(nodes) + 1):
             nodes_level_B.append(n.B)
             nodes_level_A_tilde.append(n._Atilde._Atilde)       #ho messo due volte _Atilde perchè la prima assegnazione è l'oggetto dmdunknownoperator
 
-    level_B = sum(nodes_level_B)
-    level_B = level_B / len(nodes_level_B)
-    x = np.linspace(0, level_B.shape[0], level_B.shape[0])
-    y = np.linspace(0, level_B.shape[1], level_B.shape[1])
-    make_plot(level_B.T, x=x, y=y, title = '_B level:' + str(level))    #self.B
+    sum_level_B = sum(nodes_level_B)
+    mean_level_B = sum_level_B / len(nodes_level_B)
+    x = np.linspace(0, mean_level_B.shape[0], mean_level_B.shape[0])
+    y = np.linspace(0, mean_level_B.shape[1], mean_level_B.shape[1])
+    
+    scale_B = max_value(mean_level_B)
+    make_plot(mean_level_B, x=y, y=x, title = 'Mean _B level: ' + str(level), xlabel = 'Input', ylabel = 'Output', vmin = -(scale_B), vmax = (scale_B))    #self.B
 
-    #la parte dell'A_tilde funziona solo se si tronca (cioè svd_rank = 0)
-    level_A_tilde = sum(nodes_level_A_tilde)
-    level_A_tilde = level_A_tilde / len(nodes_level_A_tilde)
-    x = np.linspace(0, level_A_tilde.shape[0], level_A_tilde.shape[0])
-    y = np.linspace(0, level_A_tilde.shape[1], level_A_tilde.shape[1])
-    make_plot(level_A_tilde, x=x, y=y, title = 'A_tilde level:' + str(level))   #self._Atilde
+    #la parte dell'A_tilde funziona solo se si tronca (cioè svd_rank = 0). con max_cycles uguale a 10 funziona anche con svd_rank=-1 in quanto si tronca a 40 (stati)
+    '''
+    sum_level_A_tilde = sum(nodes_level_A_tilde)
+    mean_level_A_tilde = sum_level_A_tilde / len(nodes_level_A_tilde)
+    x = np.linspace(0, mean_level_A_tilde.shape[0], mean_level_A_tilde.shape[0])
+    y = np.linspace(0, mean_level_A_tilde.shape[1], mean_level_A_tilde.shape[1])
+
+    scale_A_tilde = max_value(mean_level_A_tilde)
+    #make_plot(mean_level_A_tilde, x=y, y=x, title = 'Mean A_tilde level: ' + str(level), xlabel = 'State', ylabel = 'Output', vmin = -(scale_A_tilde), vmax = (scale_A_tilde))   #self._Atilde
     '''
 
 
 
+
+
+
 '''vediamo di mostrare le A_tilde e le B dei nodi'''
-for level in range (0, iteration_level(nodes) + 1):
+for level in range (0, 3):
+    i = 0
     for node in nodes:
         if node.level == level:
             x = np.linspace(0, node.B.shape[0], node.B.shape[0])
             y = np.linspace(0, node.B.shape[1], node.B.shape[1])
-            make_plot(node.B.T, x=x, y=y, title='B level: ' + str(level))
+
+            scale_B = max_value(node.B)
+            make_plot(node.B, x=y, y=x, title='B level: ' + str(level) + ' Node: ' + str(i), xlabel = 'Input', ylabel = 'Output',  vmin = -(scale_B), vmax = (scale_B))
 
             x = np.linspace(0, node._Atilde._Atilde.shape[0], node._Atilde._Atilde.shape[0])
             y = np.linspace(0, node._Atilde._Atilde.shape[1], node._Atilde._Atilde.shape[1])
-            make_plot(node._Atilde._Atilde.T, x=x, y=y, title='A_tilde level: ' + str(level))
+
+            scale_A_tilde = max_value(node._Atilde._Atilde)
+            make_plot(node._Atilde._Atilde, x=y, y=x, title='A_tilde level: ' + str(level) + ' Node: ' + str(i), xlabel = 'State', ylabel = 'Output', vmin = -(scale_A_tilde), vmax = (scale_A_tilde))
+        i = i + 1
+
+
+
+
+
+
+'''andiamo a plottare gli autovalori di ogni livello'''
+colors = plt.cm.rainbow(np.linspace(0, 1, iteration_level(nodes) + 1))
+for level in range (0, iteration_level(nodes) + 1):
+    eigenvalues = []
+    for node in nodes:
+        if node.level == level:
+            eigenvalues.extend(node.eigs)
+
+    real_part = np.real(eigenvalues)
+    imag_part = np.imag(eigenvalues)
+    # Crea il grafico
+    plt.figure(figsize=(8, 8))
+    plt.scatter(real_part, imag_part, marker='x', color=colors[level], label='Poli')
+
+    plt.axhline(0, color='black', linewidth=0.5, linestyle='--')
+    plt.axvline(0, color='black', linewidth=0.5, linestyle='--')
+
+    # Imposta i titoli e la legenda
+    plt.title('Eigenvalues map level: ' + str(level))
+    plt.xlabel('Real axis')
+    plt.ylabel('Imaginary axis')
+    plt.legend()
+
+    # Mostra il grafico
+    plt.grid(True)
+    plt.show()
+
+
+
+
+
+
+'''plotto il grafico con tutti gli autovalori dei vari livelli con colori diversi'''
+    
+# Crea una lista di colori per ogni livello
+colors = plt.cm.rainbow(np.linspace(0, 1, iteration_level(nodes) + 1))
+
+    # Crea il grafico con tutti gli autovalori
+plt.figure(figsize=(8, 8))
+
+for level in range(iteration_level(nodes) + 1):
+    plt.scatter([],[], color = colors[level], label = "eigenvalues level: " + str(level))
+    for node in nodes:
+        if node.level == level:
+            plt.scatter(node.eigs.real, node.eigs.imag, marker='x', color=colors[level])
+
+plt.axhline(0, color='black', linewidth=0.5, linestyle='--')
+plt.axvline(0, color='black', linewidth=0.5, linestyle='--')
+
+    # Imposta i titoli e la legenda
+plt.title('Eigenvalues map per Livello')
+plt.xlabel('Asse Reale')
+plt.ylabel('Asse Immaginario')
+plt.legend()
+
+    # Mostra il grafico
+plt.grid(True)
+plt.show()
+
 
 
 
