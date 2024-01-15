@@ -552,7 +552,7 @@ t_train = np.linspace(0, int(dt0 * column_train), int(dt0 * column_train))
 
 
 
-def make_plot(X, x=None, y=None, figsize=(12, 8), title='', xlabel='Delayed State', ylabel='Time (minute)', vmin = None, vmax = None):
+def make_plot(X, x=None, y=None, figsize=(12, 8), title='', xlabel='Delayed State', ylabel='Time (minute)', vmin = None, vmax = None, ticks = None):
     """
     Plot of the data X
     """
@@ -561,6 +561,8 @@ def make_plot(X, x=None, y=None, figsize=(12, 8), title='', xlabel='Delayed Stat
     X = np.real(X)
     CS = plt.pcolormesh(x, y, X, vmin = vmin, vmax = vmax, cmap= "RdBu_r")
     cbar = plt.colorbar(CS)
+    if ticks != None:
+        plt.xticks(np.arange(0, len(X[0]), ticks))
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
     plt.show()
@@ -962,7 +964,7 @@ for level in range (0, iteration_level(nodes) + 1):
     y = np.linspace(0, mean_level_B.shape[1], mean_level_B.shape[1])
     
     scale_B = max_value(mean_level_B)
-    make_plot(mean_level_B, x=y, y=x, title = 'Mean _B level: ' + str(level), xlabel = 'Input', ylabel = 'Output', vmin = -(scale_B), vmax = (scale_B))    #self.B
+    make_plot(mean_level_B, x=y, y=x, title = 'Mean _B level: ' + str(level), xlabel = 'Input', ylabel = 'Output', vmin = -(scale_B), vmax = (scale_B), ticks = 40)    #self.B
 
     #la parte dell'A_tilde funziona solo se si tronca (cioè svd_rank = 0). con max_cycles uguale a 10 funziona anche con svd_rank=-1 in quanto si tronca a 40 (stati)
     
