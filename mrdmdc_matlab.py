@@ -45,8 +45,8 @@ from pydmd.utils import compute_svd, compute_tlsq
 from pydmd.plotter import plot_eigs_mrdmd
 
 
-
-
+import control as ct
+from scipy import signal
 
 
 
@@ -187,6 +187,7 @@ class DMDBUnknownOperator(DMDControlOperator):
             [Ur.T.conj(), Y, Vp, np.diag(np.reciprocal(sp)), Up1.T.conj(), Ur]
         )
 
+        #GABRIELE non viene utilizzata, serve solo per dimostrare che la A in reconstructed_data è fatta così 
         _A = np.linalg.multi_dot(
             [Ur, Ur.T.conj(), Y, Vp, np.diag(np.reciprocal(sp)), Up1.T.conj()]
         )
@@ -301,6 +302,9 @@ class DMDc(DMDBase):
 
         self.mu = None
         self.phi = None
+        self.D_dmdc_A = None
+        self.D_dmdc_B = None
+
 
     @property
     def svd_rank_omega(self):
@@ -337,8 +341,11 @@ class DMDc(DMDBase):
             scale = -min_value
         return scale
 
-    
-    def reconstructed_data(self, control_input=None):
+
+
+    '''GABRIELE aggiunti parametri eigs e modes per override dopo la filtrazione degli SLOW'''
+
+    def reconstructed_data(self, control_input=None, eigs = None, modes = None, _B = None):
         """
         Return the reconstructed data, computed using the `control_input`
         argument. If the `control_input` is not passed, the original input (in
@@ -361,12 +368,22 @@ class DMDc(DMDBase):
                 "reconstruct has to be the same"
             )
                                                                                 #bin_size / step
-        eigs = np.power(                                                         #eigs vettore di dimensione 8 per livello 0
-            self.eigs, self.dmd_time["dt"] // self.original_time["dt"]
-        )
+        
+        '''GABRIELE imposizione degli autovalori dopo filtrazione di SLOW'''
+        if eigs is None:
+            eigs = np.power(                                                         #eigs vettore di dimensione 8 per livello 0
+                self.eigs, self.dmd_time["dt"] // self.original_time["dt"]
+            )
+
+        '''GABRIELE imposizione degI modes dopo filtrazione di SLOW'''
+        if modes is None:
+            modes = self.modes
+
+        if _B is None:
+            _B = self._B
         
         A = np.linalg.multi_dot(                                                  #A è una matrice 40x40 per livello 0
-            [self.modes, np.diag(eigs), np.linalg.pinv(self.modes)]    
+            [modes, np.diag(eigs), np.linalg.pinv(modes)]    
         )
 
         A = A.real
@@ -388,8 +405,13 @@ class DMDc(DMDBase):
         data = [self.snapshots[:, 0]]
         expected_shape = data[0].shape
 
+
+        result = dot(self.dynamics,modes) + _B.dot(self._controlin)
+
+
+
         for i, u in enumerate(controlin.T):
-            arr = A.dot(data[i]) + self._B.dot(u)
+            arr = A.dot(data[i]) + _B.dot(u)
             if arr.shape != expected_shape:
                 raise ValueError(
                     f"Invalid shape: expected {expected_shape}, got {arr.shape}"
@@ -507,7 +529,8 @@ class DMDc(DMDBase):
 
 
 
-
+#DATASET XU_MAT DELLA SRU PARAMETRI: level=0, bin_num=0, offset=0, max_levels=20, max_cycles=10
+    
 ## Scelta del dataset, se a valori complessi o reali
 #D_mat = scipy.io.loadmat('real_eig_timeseries.mat')
 #D_mat = scipy.io.loadmat('complex_eig_timeseries.mat')
@@ -545,10 +568,61 @@ x_train = np.linspace(0, row_tot, row_tot)
 dt0 = 1    #1 minuto
 t_train = np.linspace(0, int(dt0 * column_train), int(dt0 * column_train))
 
+'''
+#DATASET TROVATELLO 
+
+# define time and space domains
+x = np.linspace(-10, 10, 80)
+#t = np.linspace(0, 20, 1600)
+t = np.linspace(0, 20, 7160)
+Xm,Tm = np.meshgrid(x, t)
+
+# create data
+D = exp(-power(Xm/2, 2)) * exp(0.8j * Tm)
+D += sin(0.9 * Xm) * exp(1j * Tm)
+D += cos(1.1 * Xm) * exp(2j * Tm)
+D += 0.6 * sin(1.2 * Xm) * exp(3j * Tm)
+D += 0.6 * cos(1.3 * Xm) * exp(4j * Tm)
+D += 0.2 * sin(2.0 * Xm) * exp(6j * Tm)
+D += 0.2 * cos(2.1 * Xm) * exp(8j * Tm)
+D += 0.1 * sin(5.7 * Xm) * exp(10j * Tm)
+D += 0.1 * cos(5.9 * Xm) * exp(12j * Tm)
+D += 0.1 * np.random.randn(*Xm.shape)
+D += 0.03 * np.random.randn(*Xm.shape)
+D += 5 * exp(-power((Xm+5)/5, 2)) * exp(-power((Tm-5)/5, 2))
+D[:800,40:] += 2
+D[200:600,50:70] -= 3
+D[800:,:40] -= 2
+D[1000:1400,10:30] += 3
+D[1000:1080,50:70] += 2
+D[1160:1240,50:70] += 2
+D[1320:1400,50:70] += 2
+D = D.T # Matrice e non vettore
+
+row_tot = D.shape[0]
+column_tot = D.shape[1]
+
+
+training_mode = 0.9
+
+
+column_train = int(column_tot * training_mode)
+
+# training mod
+D_train = D[:,:int((training_mode*column_tot))]
+U_train = U[:,:int(training_mode*column_tot)]
+
+# testing mod
+D_test = D[:,D_train.shape[1]:]
+U_test = U[:,U_train.shape[1]:]
+#for the testing mode we take che rest of array that remain from the division for the training 
 
 
 
-
+x_train = np.linspace(0, row_tot, row_tot)
+dt0 = 1    #1 minuto
+t_train = np.linspace(0, int(dt0 * column_train), int(dt0 * column_train))
+'''
 
 
 
@@ -572,6 +646,27 @@ make_plot(D_train.T, x=x_train, y=t_train, title = 'Training data')
 
 
 
+plt.figure()
+plt.plot(t_train, D_train[0,:], 'g', label='Original system')
+plt.legend()
+plt.show()
+
+
+
+
+#gabriele
+def confronto(D, D_mrdmdc_ridimensionata, level):
+        D0 = D[0,:]
+        D_0 = D_mrdmdc_ridimensionata[0,:]
+
+        t_train = D0.shape[0]
+        t_train = np.linspace(0, t_train, t_train)
+    
+        plt.figure()
+        plt.plot(t_train, D0.real, 'b', label='Misura')
+        plt.plot(t_train, D_0.real, 'g', label='mrDMDc level: ' + str(level))
+        plt.legend()
+        plt.show()
 
 
 
@@ -626,7 +721,7 @@ def mrdmdc(D, U, level=0, bin_num=0, offset=0, max_levels=20, max_cycles=10):
 
     U0 = _U[:,1:]   #DA CONTROLLARE SE FARE U[:,:-1]
 
-    dmdc = DMDc(svd_rank=0) 
+    dmdc = DMDc(svd_rank=-1) 
 
     dmdc.level = level            # level of recursion
     dmdc.bin_num = bin_num        # time bin number
@@ -645,7 +740,7 @@ def mrdmdc(D, U, level=0, bin_num=0, offset=0, max_levels=20, max_cycles=10):
     Phi = dmdc.modes
 
     '''parte per la filtrazione degli slow'''
-    rho = max_cycles / bin_size                                ## frequenza di taglio rho definita come n° max di modi dinamici
+    rho = 15 * max_cycles / bin_size                                ## frequenza di taglio rho definita come n° max di modi dinamici
                                                                ## classificati come "slow" diviso il numero di colonne della
                                                                ## matrice D.  2/1600=0.00125
 
@@ -668,6 +763,33 @@ def mrdmdc(D, U, level=0, bin_num=0, offset=0, max_levels=20, max_cycles=10):
     
     if n > 0:                                                  ## se il n° di modi "slow" è maggiore di zero
 
+        
+        A = np.linalg.multi_dot(                                                  #A è una matrice 40x40 per livello 0
+            [Phi, np.diag(mu), np.linalg.pinv(Phi)]    
+        )
+
+        #result = dot(self.dynamics,modes) + _B.dot(self._controlin)
+
+        
+        D_dmdc_A = dot(A , D) 
+        
+        '''
+            if arr.shape != expected_shape:
+                raise ValueError(
+                    f"Invalid shape: expected {expected_shape}, got {arr.shape}"
+                )
+        '''
+        '''
+
+        #dato = np.array(dato).T
+
+
+
+        Prendiamo il codice dell'mrdmd originale per ricavare le dinamiche autonome del sistema
+        '''
+
+
+
         # vars for the objective function for D (before subsampling)
         Vand = np.vander(power(mu, 1/step), bin_size, True)   ## vander() restituisce una matrice di Vandermonde, come paramentri
                                                               ## vanno passati: un array 1-D (in questo caso mu elevato a potenza
@@ -689,30 +811,49 @@ def mrdmdc(D, U, level=0, bin_num=0, offset=0, max_levels=20, max_cycles=10):
         # time evolution
         Psi = (Vand.T * b_opt).T                              ## Psi matrice (2,1600)
 
+        B = dmdc.B
+
+        #B = B * step   
+        '''in teoria facendo questa moltiplicazione io sto andando a considerare la B '''
+
 
     else:
 
         # zero time evolution
         b_opt = np.array([], dtype='complex')
         Psi = np.zeros([0, bin_size], dtype='complex')
+        A = np.zeros([D.shape[0], D.shape[0]], dtype='complex')
+        B = np.zeros([dmdc.B.shape[0], dmdc.B.shape[1]], dtype='complex')
 
     # dmd reconstruction
-    D_dmdc = dot(Phi, Psi)                                     ## D_dmd equivale al prodotto scalare tra i modi dinamici slow
-                                                              ## e la matrice che rappresenta l'evoluzione nel tempo
+    #D_dmdc_A = dot(Phi, Psi)                                     ## D_dmd equivale al prodotto scalare tra i modi dinamici slow
+    D_dmdc_A = dot(A , D) 
+    D_dmdc_B = dot(B, U) 
+
+    dmdc.D_dmdc_A = D_dmdc_A
+    dmdc.D_dmdc_B = D_dmdc_B
     
-    dato = dmdc.reconstructed_data()
+    D_dmdc = D_dmdc_A + D_dmdc_B
+
+    x = D_dmdc.shape[0]
+    y = D_dmdc.shape[1]
+    x = np.linspace(0, x, x)
+    y = np.linspace(0, y, y)
+    #make_plot(D_dmdc.T, x=x, y=y, title='levels 0-' + str(level) + " nyq: " + str(nyq) + " step: " + str(step), figsize=(7.5, 5))
+    #plt.figure()
+    #plt.plot(y, D_dmdc_A[0,:], 'b', label='D_dmdc_A')
+    #plt.plot(y, D_dmdc_B[0,:], 'g', label='D_dmdc_B')
+    #plt.legend()
+    #plt.show()
 
     # remove influence of slow modes
     D = D - D_dmdc                                             ## Rimuove dai dati rimanenti le componenti slow                               
-
-    
-
 
 
 
     #node = type('Node', (object,), {})()
    
-    dmdc.dato = dato
+    dmdc.dato = D_dmdc
 
     
     dmdc.mu = mu
@@ -747,20 +888,6 @@ def mrdmdc(D, U, level=0, bin_num=0, offset=0, max_levels=20, max_cycles=10):
 nodes = mrdmdc(D_train, U_train)
 
 
-
-
-
-#gabriele
-def confronto(D, D_mrdmdc_ridimensionata, level):
-    for i in range(0,5):
-        D0 = D[i,:]
-        D_0 = D_mrdmdc_ridimensionata[i,:]
-    
-        plt.figure()
-        plt.plot(t_train, D0.real, 'b', label='Misura')
-        plt.plot(t_train, D_0.real, 'g', label='mrDMDc level: ' + str(level))
-        plt.legend()
-        plt.show()
 
     
 
@@ -809,25 +936,66 @@ livello maggiore in posizione con l'indice minore sono quelli che vengono inseri
 In questo caso ad esempio con i dati di train vengono inseriti prima il nodo 9 ed il nodo 10, che sono i nodi che hanno il livello
 massimo di ricorsione che si trovano con l'indice più piccolo tra i nodi con il livello massimo
 '''
+colors = plt.cm.rainbow(np.linspace(0, 1, iteration_level(nodes) + 1))
 
-D_mrdmdc = np.zeros([row_tot, column_train], dtype = complex)
+D_mrdmdc = np.zeros([row_tot, column_train], dtype = complex)   #dichiaro una matrice nulla da riempire 
+D_mrdmdc_A = np.zeros([row_tot, column_train], dtype = complex)
+D_mrdmdc_B = np.zeros([row_tot, column_train], dtype = complex)
 
+plt.figure()
 for level in range(0 , iteration_level(nodes) + 1):
-    level_reconstruction = np.hstack(n.dato for n in nodes if n.level == level)
-    for node in nodes:
-        if level == node.level:
-            nyq = node.nyq
-            step = node.step 
-    level_rec_ridimensionato = dimensionamento(level_reconstruction, column_train)
-    D_mrdmdc += level_rec_ridimensionato 
+
+    # extract relevant nodes
+    nodes_level = [n for n in nodes if n.level == level]
+    nodes_level = sorted(nodes_level, key=lambda n: n.bin_num)
+
+    D_mrdmdc_level_reconstruction = np.hstack(n.dato for n in nodes_level)
+
+    plt.plot(t_train, D_mrdmdc_level_reconstruction[0,:], color=colors[level], label='D_mrdmdc level: ' + str(level))
+
+    #level_rec_ridimensionato = dimensionamento(level_reconstruction, column_train)
+    D_mrdmdc += D_mrdmdc_level_reconstruction
+
+    nyq = nodes_level[0].nyq
+    step = nodes_level[0].step
+
     x = D_mrdmdc.shape[0]
     y = D_mrdmdc.shape[1]
     x = np.linspace(0, x, x)
     y = np.linspace(0, y, y)
     #make_plot(D_mrdmdc.T, x=x, y=y, title='levels 0-' + str(level) + " nyq: " + str(nyq) + " step: " + str(step), figsize=(7.5, 5))
     #confronto(D_train, D_mrdmdc, level)
-    if (level_reconstruction.shape[1] == D_train.shape[1]):
-        break
+
+plt.plot(t_train, D_mrdmdc[0,:], 'k', label='Reconstructed system')
+
+plt.plot(t_train, D_train[0,:], 'g', label='Original system')
+plt.legend()
+plt.show()
+
+
+
+
+colors = plt.cm.rainbow(np.linspace(0, 1, iteration_level(nodes) + 1)) 
+
+for level in range (0, iteration_level(nodes) + 1):
+    nodes_level = [n for n in nodes if n.level == level]
+    nodes_level = sorted(nodes_level, key=lambda n: n.bin_num)
+
+    D_mrdmdc_level_A = np.hstack(n.D_dmdc_A for n in nodes_level)
+    plt.figure(figsize=(16,6))
+    plt.subplot(121)
+    plt.plot(t_train, D_mrdmdc_level_A[0,:], color=colors[level], label='D_mrdmdc_A level: ' + str(level))
+
+    D_mrdmdc_level_B = np.hstack(n.D_dmdc_B for n in nodes_level)
+    plt.subplot(122)
+    plt.plot(t_train, D_mrdmdc_level_B[0,:], color=colors[level], label='D_mrdmdc_B level: ' + str(level))
+    plt.legend()
+    plt.show()
+    
+
+    
+
+
 
 
 
@@ -978,6 +1146,7 @@ for level in range (0, iteration_level(nodes) + 1):
     make_plot(mean_level_A_tilde, x=y, y=x, title = 'Mean A_tilde level: ' + str(level), xlabel = 'State', ylabel = 'Output', vmin = -(scale_A_tilde), vmax = (scale_A_tilde))   #self._Atilde
     '''
 
+    '''
     sum_level_A = sum(nodes_level_A)
     mean_level_A = sum_level_A / len(nodes_level_A)
     x = np.linspace(0, mean_level_A.shape[0], mean_level_A.shape[0])
@@ -985,7 +1154,7 @@ for level in range (0, iteration_level(nodes) + 1):
 
     scale_A = max_value(mean_level_A)
     make_plot(mean_level_A, x=y, y=x, title = 'Mean A level: ' + str(level), xlabel = 'State', ylabel = 'Output', vmin = -(scale_A), vmax = (scale_A))   #self.A
-
+    '''
 
 
 
@@ -1166,9 +1335,9 @@ plt.show()
 
 
 
+'''
 
-
-'''Facciamo una funzione per controllare qual è il bin_size più vicino alla U_test'''
+Facciamo una funzione per controllare qual è il bin_size più vicino alla U_test
 
 def choose_bin(U_test, nodes):
     for i in range(0, len(nodes)):
@@ -1176,7 +1345,7 @@ def choose_bin(U_test, nodes):
             node = nodes[i]
     return node
 
-'''A questo punto vado a campionare la U_test e la passo a reconstructed_data'''
+A questo punto vado a campionare la U_test e la passo a reconstructed_data
 
 dmdc_reconstruct = choose_bin(U_test, nodes)
 i = dmdc_reconstruct.level
@@ -1206,6 +1375,6 @@ make_plot(reconstruct.T, x=x, y=y, title='level: ' + str(i), figsize=(7.5, 5))
 #confronto(D_train, reconstruct)
 
 
-
+'''
 
 
