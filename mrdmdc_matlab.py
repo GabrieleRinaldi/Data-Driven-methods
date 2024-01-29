@@ -16,6 +16,8 @@ import math
 from sklearn.metrics import mean_squared_error
 #from pydmd.plotter import plot_eigs
 
+import matplotlib
+
 import numpy as np
 import matplotlib.pyplot as plt
 from numpy import dot, multiply, diag, power
@@ -48,7 +50,7 @@ from pydmd.plotter import plot_eigs_mrdmd
 import control as ct
 from scipy import signal
 
-
+import harold
 
 
 class DMDControlOperator(DMDOperator):
@@ -298,12 +300,25 @@ class DMDc(DMDBase):
         self.step = None              # step size
         self.dato = None
         self.nyq = None
+        self.rho = None
+
         self.A = None
 
-        self.mu = None
-        self.phi = None
-        self.D_dmdc_A = None
-        self.D_dmdc_B = None
+        self.mu_SLOW_step = None
+        self.phi_SLOW_step = None
+
+        self.sys_cont = None
+        self.mu_SLOW_cont = None
+
+        self.sys_disc_1 = None
+        self.D_dmdc_A_disc_1 = None
+        self.D_dmdc_B_disc_1 = None
+        self.mu_SLOW_1 = None
+
+        self.percentage_of_filtration = None
+
+
+
 
 
     @property
@@ -345,6 +360,7 @@ class DMDc(DMDBase):
 
     '''GABRIELE aggiunti parametri eigs e modes per override dopo la filtrazione degli SLOW'''
 
+    '''
     def reconstructed_data(self, control_input=None, eigs = None, modes = None, _B = None):
         """
         Return the reconstructed data, computed using the `control_input`
@@ -369,13 +385,13 @@ class DMDc(DMDBase):
             )
                                                                                 #bin_size / step
         
-        '''GABRIELE imposizione degli autovalori dopo filtrazione di SLOW'''
+        #GABRIELE imposizione degli autovalori dopo filtrazione di SLOW
         if eigs is None:
             eigs = np.power(                                                         #eigs vettore di dimensione 8 per livello 0
                 self.eigs, self.dmd_time["dt"] // self.original_time["dt"]
             )
 
-        '''GABRIELE imposizione degI modes dopo filtrazione di SLOW'''
+        #GABRIELE imposizione degI modes dopo filtrazione di SLOW
         if modes is None:
             modes = self.modes
 
@@ -406,10 +422,11 @@ class DMDc(DMDBase):
         expected_shape = data[0].shape
 
 
-        result = dot(self.dynamics,modes) + _B.dot(self._controlin)
+        #result = dot(self.dynamics,modes) + _B.dot(self._controlin)
 
 
-
+        #data[i] rappresenta l'istante i-esimo dei dati dello stato
+        #u rappresenta l'istante i-esimo dei dati di input
         for i, u in enumerate(controlin.T):
             arr = A.dot(data[i]) + _B.dot(u)
             if arr.shape != expected_shape:
@@ -421,11 +438,13 @@ class DMDc(DMDBase):
         data = np.array(data).T
 
         return data
-    
-    '''
-    def reconstructed_data_test(self, data = None, control_input=None):
-    
-       
+        '''
+
+
+
+
+    def reconstructed_data(self, control_input=None):
+        """
         Return the reconstructed data, computed using the `control_input`
         argument. If the `control_input` is not passed, the original input (in
         the `fit` method) is used. The input dimension has to be consistent
@@ -434,19 +453,19 @@ class DMDc(DMDBase):
         :param numpy.ndarray control_input: the input control matrix.
         :return: the matrix that contains the reconstructed snapshots.
         :rtype: numpy.ndarray
-       
+        """
         controlin = (
             np.asarray(control_input)
             if control_input is not None
             else self._controlin
         )
-       
+
         if controlin.shape[-1] != self.dynamics.shape[-1] - 1:
             raise RuntimeError(
                 "The number of control inputs and the number of snapshots to "
                 "reconstruct has to be the same"
             )
-    
+
         eigs = np.power(
             self.eigs, self.dmd_time["dt"] // self.original_time["dt"]
         )
@@ -454,32 +473,22 @@ class DMDc(DMDBase):
             [self.modes, np.diag(eigs), np.linalg.pinv(self.modes)]    
         )
 
-        
-        if data is not None:
-            None
-        else: 
-            data = [self.snapshots[:, 0]]
-        
+        data = [self.snapshots[:, 0]]
         expected_shape = data[0].shape
 
-        for i in range(0,controlin.shape[0]):
-            u = i
+        for i, u in enumerate(controlin.T):
             arr = A.dot(data[i]) + self._B.dot(u)
-            
             if arr.shape != expected_shape:
                 raise ValueError(
                     f"Invalid shape: expected {expected_shape}, got {arr.shape}"
                 )
-               
-            
-            data = np.hstack(arr)
+            data.append(arr)
 
-        
-        #data = np.vstack([data, self.snapshots[:,0]])
-        #data = data.T
-            
+        data = np.array(data).T
+
         return data
-        '''
+
+
     
 
 
@@ -510,6 +519,7 @@ class DMDc(DMDBase):
         self._set_initial_time_dictionary(
             {"t0": 0, "tend": n_samples - 1, "dt": 1}
         )
+        
 
         if B is None:
             self._Atilde = DMDBUnknownOperator(**self._dmd_operator_kwargs)
@@ -529,103 +539,61 @@ class DMDc(DMDBase):
 
 
 
-#DATASET XU_MAT DELLA SRU PARAMETRI: level=0, bin_num=0, offset=0, max_levels=20, max_cycles=10
+
     
-## Scelta del dataset, se a valori complessi o reali
+## Dataset, complex or real
+    
 #D_mat = scipy.io.loadmat('real_eig_timeseries.mat')
-#D_mat = scipy.io.loadmat('complex_eig_timeseries.mat')
+#D_mat_list = [[element for element in upperElement] for upperElement in D_mat['x']]
+    
+D_mat = scipy.io.loadmat('complex_eig_timeseries.mat')
+D_mat_list = [[element for element in upperElement] for upperElement in D_mat['x']]
+    
+#SRU dataset
+
 D_mat = scipy.io.loadmat('XU_DMDc.mat')
-
-## Trasformo il formato .mat in un Numpy Array
-## Cambiare l'argomento di D_mat['xt'] in D_mat['X'] se si usa il dataset XU_DMDc.mat
-D_mat_list = [[element for element in upperElement] for upperElement in D_mat['X']]
+#D_mat_list = [[element for element in upperElement] for upperElement in D_mat['X']]
 U_mat_list = [[element for element in upperElement] for upperElement in D_mat['U']]
+
+#to select dataset uncomment one of them and D_mat_list specific for it
+
+
+#Transform variables to numpy array, allow us to use they in python ambience
 D = np.array(D_mat_list)
-U = np.array(U_mat_list)
+#U = np.array(U_mat_list)
+U = np.array(U_mat_list)[161,:]
+#U = np.zeros([D.shape[0], D.shape[1]], dtype='complex')
 
 
+#Normalization 
+#D = scipy.stats.zscore(D)
+#U = scipy.stats.zscore(U)
+
+
+#Establish the number of snapshots for train and test
 row_tot = D.shape[0]
 column_tot = D.shape[1]
 
-
+#indicates the percentage of snapshots for train and test
 training_mode = 0.9
-
 
 column_train = int(column_tot * training_mode)
 
-# training mod
-D_train = D[:,:int((training_mode*column_tot))]
-U_train = U[:,:int(training_mode*column_tot)]
+# training snapshots
+D_train = D[:,:int((column_train))]
+#U_train = U[:,:int(column_train)]            ########### uncomment if U is a matrix and not an array 
+U_train = U[:int(column_train)]
 
-# testing mod
+# testing snapshots
 D_test = D[:,D_train.shape[1]:]
-U_test = U[:,U_train.shape[1]:]
+#U_test = U[:,U_train.shape[1]:]
 #for the testing mode we take che rest of array that remain from the division for the training 
 
 
 
-x_train = np.linspace(0, row_tot, row_tot)
-dt0 = 1    #1 minuto
-t_train = np.linspace(0, int(dt0 * column_train), int(dt0 * column_train))
-
-'''
-#DATASET TROVATELLO 
-
-# define time and space domains
-x = np.linspace(-10, 10, 80)
-#t = np.linspace(0, 20, 1600)
-t = np.linspace(0, 20, 7160)
-Xm,Tm = np.meshgrid(x, t)
-
-# create data
-D = exp(-power(Xm/2, 2)) * exp(0.8j * Tm)
-D += sin(0.9 * Xm) * exp(1j * Tm)
-D += cos(1.1 * Xm) * exp(2j * Tm)
-D += 0.6 * sin(1.2 * Xm) * exp(3j * Tm)
-D += 0.6 * cos(1.3 * Xm) * exp(4j * Tm)
-D += 0.2 * sin(2.0 * Xm) * exp(6j * Tm)
-D += 0.2 * cos(2.1 * Xm) * exp(8j * Tm)
-D += 0.1 * sin(5.7 * Xm) * exp(10j * Tm)
-D += 0.1 * cos(5.9 * Xm) * exp(12j * Tm)
-D += 0.1 * np.random.randn(*Xm.shape)
-D += 0.03 * np.random.randn(*Xm.shape)
-D += 5 * exp(-power((Xm+5)/5, 2)) * exp(-power((Tm-5)/5, 2))
-D[:800,40:] += 2
-D[200:600,50:70] -= 3
-D[800:,:40] -= 2
-D[1000:1400,10:30] += 3
-D[1000:1080,50:70] += 2
-D[1160:1240,50:70] += 2
-D[1320:1400,50:70] += 2
-D = D.T # Matrice e non vettore
-
-row_tot = D.shape[0]
-column_tot = D.shape[1]
 
 
-training_mode = 0.9
-
-
-column_train = int(column_tot * training_mode)
-
-# training mod
-D_train = D[:,:int((training_mode*column_tot))]
-U_train = U[:,:int(training_mode*column_tot)]
-
-# testing mod
-D_test = D[:,D_train.shape[1]:]
-U_test = U[:,U_train.shape[1]:]
-#for the testing mode we take che rest of array that remain from the division for the training 
-
-
-
-x_train = np.linspace(0, row_tot, row_tot)
-dt0 = 1    #1 minuto
-t_train = np.linspace(0, int(dt0 * column_train), int(dt0 * column_train))
-'''
-
-
-
+#this function allow to make plot like image (it is used to plot matrix values)
 def make_plot(X, x=None, y=None, figsize=(12, 8), title='', xlabel='Delayed State', ylabel='Time (minute)', vmin = None, vmax = None, ticks = None):
     """
     Plot of the data X
@@ -642,10 +610,15 @@ def make_plot(X, x=None, y=None, figsize=(12, 8), title='', xlabel='Delayed Stat
     plt.show()
 
 
+#https://numpy.org/doc/stable/reference/generated/numpy.linspace.html
+x_train = np.linspace(0, row_tot, row_tot)
+dt0 = 1    #1 minute
+t_train = np.linspace(0, int(dt0 * column_train), int(dt0 * column_train))
+
 make_plot(D_train.T, x=x_train, y=t_train, title = 'Training data')
 
 
-
+#plot the first column of the dataset selected
 plt.figure()
 plt.plot(t_train, D_train[0,:], 'g', label='Original system')
 plt.legend()
@@ -654,10 +627,10 @@ plt.show()
 
 
 
-#gabriele
-def confronto(D, D_mrdmdc_ridimensionata, level):
+#this function make a comparison between the first column of the original system and the reconstructed system
+def comparison(D, D_mrdmdc_level, level):
         D0 = D[0,:]
-        D_0 = D_mrdmdc_ridimensionata[0,:]
+        D_0 = D_mrdmdc_level[0,:]
 
         t_train = D0.shape[0]
         t_train = np.linspace(0, t_train, t_train)
@@ -673,7 +646,13 @@ def confronto(D, D_mrdmdc_ridimensionata, level):
 
 
 
-def mrdmdc(D, U, level=0, bin_num=0, offset=0, max_levels=20, max_cycles=10):
+
+
+
+
+
+
+def mrdmdc(D, U, number_node, level=0, bin_num=0, offset=0, max_levels=20, max_cycles=10):
     """Compute the multi-resolution DMD on the dataset `D`, returning a list of nodes
     in the hierarchy. Each node represents a particular "time bin" (window in time) at
     a particular "level" of the recursion (time scale). The node is an object consisting
@@ -686,42 +665,47 @@ def mrdmdc(D, U, level=0, bin_num=0, offset=0, max_levels=20, max_cycles=10):
     optimal singular value hard thresholding."""
      
     
-    # 4 times nyquist limit to capture cycles                 ## per il teorema di nyquist, un segnale sinusoidale puo'
-                                                              ## essere ricostruito senza perdere informazioni, fintanto che 
-                                                              ## viene campionato ad una frequenza due volte o piu' maggiori
-                                                              ## della frequenza massima. (valore tipico: 4 volte maggiori)
-                
-    nyq = 4 * max_cycles                                      ## nyq = 8 * 2
+    # 4 times nyquist limit to capture cycles                 
+    nyq = 4 * max_cycles                                      
 
     
+    #bin_size is equal to number of columns of D
+    bin_size = D.shape[1]                          
 
-    bin_size = D.shape[1]                          ## bin_size equivale al numero di colonne (1600)
 
-
-    if (bin_size) < (nyq):                                        ## bin_size(1600)<nyq(16)
+    #the condition for exit from algorithm
+    if (bin_size) < (nyq):                                        
         return []
 
-    # extract subsamples 
-    step = floor(bin_size / nyq) # max step size to capture cycles   ## floor è una funzione che approssima per difetto
-                                                                     ## esempio floor(2.9) equivale a 2.
-                                                                     ## in questo caso bin_size / nyq == 100 , quindi step=100
-            
-    _D = D[:,::(step)]                                           ## D[:,:] è uno slice assignment, in particolare D[:,::step]
-                                                             ## considera i valori presi ogni step di tutte le righe e crea
-                                                               ## una nuova matrice con solo i valori considerati.
-    _U = U[:,::(step)]
-    
-    D0 = _D[:,:]
 
-    x = D0.shape[0]
-    y = D0.shape[1]
+    # extract subsamples, take a value every step for D and U
+    #step = floor(bin_size / nyq)     #floor truncate the decimal part of number   
+    step = bin_size // nyq        
+    _D = D[:,::(step)]                                           
+    #_U = U[:,::(step)]             #################
+    _U = U[::(step)]
+    
+
+
+
+
+    #Plot of subsampled data
+    x = _D.shape[0]
+    y = _D.shape[1]
     x = np.linspace(0, x, x)
     y = np.linspace(0, y, y)
     #make_plot(D0.T, x=x, y=y, title=" nyq: " + str(nyq) + " step: " + str(step), figsize=(7.5, 5))
 
-    U0 = _U[:,1:]   #DA CONTROLLARE SE FARE U[:,:-1]
 
+
+
+    
+
+    #declaration of DMDc object, it will be used to calculate eigenvalues and modes, also keeps track of the algorithm iterations and allow to save the reconstructed matrix for each iteration
     dmdc = DMDc(svd_rank=-1) 
+
+    #save the DMDc object into an array
+    nodes = [dmdc]
 
     dmdc.level = level            # level of recursion
     dmdc.bin_num = bin_num        # time bin number
@@ -732,113 +716,184 @@ def mrdmdc(D, U, level=0, bin_num=0, offset=0, max_levels=20, max_cycles=10):
     dmdc.nyq = nyq
 
 
-    dmdc.fit(D0,U0)
-    
+    #fitting model from data and input passed to algorithm, take one snapshot less than D
+    #dmdc.fit(_D , _U[:,1:])          ###################
+    dmdc.fit(_D , _U[1:])
 
-    
+
+    #extract eigenvalues and modes from DMDc object
     mu = dmdc.eigs
     Phi = dmdc.modes
 
-    '''parte per la filtrazione degli slow'''
-    rho = 15 * max_cycles / bin_size                                ## frequenza di taglio rho definita come n° max di modi dinamici
-                                                               ## classificati come "slow" diviso il numero di colonne della
-                                                               ## matrice D.  2/1600=0.00125
+
+    #Slow filtration
+    rho = 11*max_cycles / bin_size                               
+    dmdc.rho = rho
+
 
     # consolidate slow eigenvalues (as boolean mask)
-    slow = (np.abs(np.log(mu) / (2 * pi * step))) <= rho        ## ritorna il valore assoluto [abs()] del logaritmo di mu diviso
-                                                               ## 2*pi greco*step, che deve essere minore o uguale a rho.
-                                                               ## in questo caso [false false false false true true false]
-
+    slow = (np.abs(np.log(mu) / (2 * pi * step))) <= rho
         
-    n = sum(slow) # number of slow modes                       ## il numero dei modi "slow" è dato dalla somma di slow.
-                                                               ## in questo caso 2.
 
-    # extract slow modes (perhaps empty)                       ## si estrae i modi "slow"
-    mu = mu[slow]                                               ## in mu salva solo gli autovalori "slow"
-                                                               ## da 7 autovalori a 2 autovalori.
+    # number of slow modes
+    n = sum(slow)                        
 
-   
-    Phi = Phi[:,slow]                                          ## in phi salva solo i modi dinamici "slow"
-                                                               ## phi.shape era (80,7) adesso è (80,2).
+
+    #calculate the percentage of filtration 100 : mu = percentage_of_filtration : n
+    dmdc.percentage_of_filtration = 100 - ((100/len(mu)) * n)
+
+
+    # extract slow modes (perhaps empty)                       
+    mu_SLOW_step = mu[slow]                                               
+    Phi_SLOW_step = Phi[:,slow]                                          
     
-    if n > 0:                                                  ## se il n° di modi "slow" è maggiore di zero
 
-        
-        A = np.linalg.multi_dot(                                                  #A è una matrice 40x40 per livello 0
-            [Phi, np.diag(mu), np.linalg.pinv(Phi)]    
+    #if found slow mode...
+    if n > 0:                                                  
+
+        #Calculate A with slow features, they were calcuted with dt = step 
+        A_disc_step = np.linalg.multi_dot(                                                  
+            [Phi_SLOW_step, np.diag(mu_SLOW_step), np.linalg.pinv(Phi_SLOW_step)]    
         )
 
-        #result = dot(self.dynamics,modes) + _B.dot(self._controlin)
 
+        #Extract B from dmdc object, also calculate with dt = step by method .fit (when we call dmdc.fit)         
+        B_disc_step = dmdc.B
+
+
+        #Considerate two matrices C and D
+        #matrix C with a ones column and the rest with 0 to extract the first state (that is not delayed) 
+        C_disc = np.zeros([A_disc_step.shape[0],B_disc_step.shape[0]], dtype = 'complex')
+        C_disc[:,0] = 1
+
+        #matrix D with 0 because the inputs don't influence directly the exit (strictly own system)
+        #D_disc = np.zeros([A_disc_step.shape[0], B_disc_step.shape[1]], dtype = 'complex')            ##########################
+        D_disc = np.zeros([A_disc_step.shape[0]], dtype = 'complex')
         
-        D_dmdc_A = dot(A , D) 
         
-        '''
+        #generate a discrete system with dt = step, because we want to see eigenvalues in continuous
+        sys_disc_step = harold.State(A_disc_step, B_disc_step , C_disc, D_disc, dt = (step))
+
+
+        #to see eigenvalues in continuous used the method of the Harold library "undiscretize" that allow to pass from dicrete system to continuous system 
+        sys_cont = harold.undiscretize(sys_disc_step, method='tustin')  
+        #extract matrices from continuous system
+        A_cont = sys_cont.a
+        B_cont = sys_cont.b
+        C_cont = sys_cont.c
+        D_cont = sys_cont.d
+        #calculate eigenvalues from A matrix
+        [dmdc.mu_SLOW_cont,eigenvectors] = eig(A_cont)
+
+
+        #to print pzmap (pole-zero map) about system, there is the necessity to use another library because Harold library don't support the pzmap method
+        #the library that allow to see pzmap is the "Control Library for Python" doc: https://python-control.readthedocs.io/en/0.9.4/index.html
+        sys_cont_control = ct.StateSpace(A_cont, B_cont, C_cont, D_cont)    
+        #ct.pzmap(sys_cont_control, title= 'Pole Zero Map node: ' + str(number_node))
+        #plt.show()
+        
+        
+        #for the reconstruction there is a necessity to reconvert system in discrete state, but with dt = 1 because every sample must be rescaled from distance step to 1
+        sys_disc_1 = harold.discretize(sys_cont, dt = 1, method = 'tustin')
+
+        #extract matrices, they are used to reconstruct 
+        A_disc_1 = sys_disc_1.a
+        #B_disc_1 = sys_disc_1.b       #######################  if U is a column, comment the instruction in this row and uncomment the one immediately below.   
+        B_disc_1 = sys_disc_1.b[:,0]       ############################ COMMENTO DA CANCELLARE -> va bene come assegnazione da riga a colonna
+
+        #extraction of eigenvalues with dt = 1
+        [dmdc.mu_SLOW_1,eigenvectors] = eig(A_disc_1)
+        
+        '''Now the algorithm have the matrices A and B to compute the reconstructed matrix for the node (DMDc object)'''
+        
+        #the reconstruction for one node starts from the initial conditions (delcared as an array). This array will become a matrix after the reconstruction code block
+        D_dmdc_disc_1 = [D[:, 0]].copy()
+
+        D_dmdc_A_disc_1 = D_dmdc_disc_1.copy()    
+        D_dmdc_B_disc_1 = []  #np.zeros([D_dmdc_cont[0].shape[0]])
+
+        #number of rows expected after the reconstruction
+        expected_shape = D_dmdc_disc_1[0].shape
+        
+        
+
+        #the reconstruction continue with the calculation about data and inputs like DMDc algorithm but with the difference that the reconstrution is with all inputs and not only subsampled inputs
+        #data[i] rappresenta l'istante i-esimo dei dati dello stato      #######################DA TRADURRE
+        #u rappresenta l'istante i-esimo dei dati di input
+        #for i, u in enumerate(U[:,1:].T):            #########################
+        for i, u in enumerate(U[1:].T):
+            arr = (A_disc_1.dot(D_dmdc_disc_1[i])) + (B_disc_1.dot(u))  
+
+            x = A_disc_1.shape[0]
+            y = A_disc_1.shape[1]
+            x = np.linspace(0, x, x)
+            y = np.linspace(0, y, y)
+            #make_plot(A_disc_1, x=y, y=x, title=   'A_disc_1' + " nyq: " + str(nyq) + " step: " + str(step), figsize=(7.5, 5), xlabel = 'State', ylabel = 'Output')
+
+            x = A_disc_step.shape[0]
+            y = A_disc_step.shape[1]
+            x = np.linspace(0, x, x)
+            y = np.linspace(0, y, y)
+            #make_plot(A_disc_step, x=y, y=x, title="A_disc_step nyq: " + str(nyq) + " step: " + str(step), figsize=(7.5, 5), xlabel = 'State', ylabel = 'Output')
+
+            x = A_cont.shape[0]
+            y = A_cont.shape[1]
+            x = np.linspace(0, x, x)
+            y = np.linspace(0, y, y)
+            #make_plot(A_cont, x=y, y=x, title="A_cont nyq: " + str(nyq) + " step: " + str(step), figsize=(7.5, 5), xlabel = 'State', ylabel = 'Output')
+
+            #arr = A_disc_step.dot(D_dmdc_disc_1[i]) + B_disc_step.dot(u)
             if arr.shape != expected_shape:
                 raise ValueError(
                     f"Invalid shape: expected {expected_shape}, got {arr.shape}"
-                )
+                ) 
+            D_dmdc_disc_1.append(arr)
+            D_dmdc_A_disc_1.append(A_disc_1.dot(D_dmdc_disc_1[i]))
+            D_dmdc_B_disc_1.append(B_disc_1.dot(u))
+
+        D_dmdc_disc_1 = np.array(D_dmdc_disc_1).T
+        D_dmdc_A_disc_1 = np.array(D_dmdc_A_disc_1).T
+        D_dmdc_B_disc_1 = np.array(D_dmdc_B_disc_1).T
+        
+
+
+        #D_dmdc_A_disc_1 = dot(A_disc_1, D)
+        #D_dmdc_B_disc_1 = dot(B_disc_1, U)
+        #D_dmdc_disc_1 = D_dmdc_A_disc_1 + D_dmdc_B_disc_1
+
+
         '''
-        '''
+        plt.figure(figsize=(16,6))
+        x = np.linspace(0, D_dmdc_A_disc_1.shape[1], D_dmdc_A_disc_1.shape[1])
+        plt.plot(x, D_dmdc_A_disc_1[0,:], label='D_dmdc_A level: ' + str(level))
+        plt.legend()
+        plt.show() 
+        '''                       
 
-        #dato = np.array(dato).T
+        #save the continuous system to see zeros poles for every level
+        dmdc.sys_cont = sys_cont
+        #save discrete system with dt = 1
+        dmdc.sys_disc_1 = sys_disc_1
 
-
-
-        Prendiamo il codice dell'mrdmd originale per ricavare le dinamiche autonome del sistema
-        '''
-
-
-
-        # vars for the objective function for D (before subsampling)
-        Vand = np.vander(power(mu, 1/step), bin_size, True)   ## vander() restituisce una matrice di Vandermonde, come paramentri
-                                                              ## vanno passati: un array 1-D (in questo caso mu elevato a potenza
-                                                              ## 1/1600), il numero di colonne dell'uscita e un valore booleano
-                                                              ## che indica l'incremento (se True allora le colonne saranno
-                                                              ## x^0, x^1, x^2... se False saranno x^(N-1), x^(N-2),...)
-                        
-        P = multiply(dot(Phi.conj().T, Phi), np.conj(dot(Vand, Vand.conj().T)))  ## multiply() serve per moltiplicare due array.
-                                                                                 ## in questo caso tra il [prodotto scalare della
-                                                                                 ## la congiunta di phi trasposta e phi] e 
-                                                                                 ## [la congiunta del prodotto scalare di Vand
-                                                                                 ## e la congiunta di Vand trasposta]
-        q = np.conj(diag(dot(dot(Vand, D.conj().T), Phi)))    ##
-
-        # find optimal b solution
-        b_opt = solve(P, q).squeeze()                         ## b = P^-1 * q
-                                                              ## solve() trova le radici di P risolvendo per q
-
-        # time evolution
-        Psi = (Vand.T * b_opt).T                              ## Psi matrice (2,1600)
-
-        B = dmdc.B
-
-        #B = B * step   
-        '''in teoria facendo questa moltiplicazione io sto andando a considerare la B '''
 
 
     else:
+        #reassignments of A,B are made in case no SLOW features are found
+        D_dmdc_A_disc_1 = np.zeros([D.shape[0], D.shape[1]], dtype='complex')
+        D_dmdc_B_disc_1 = np.zeros([D.shape[0], D.shape[1]], dtype='complex')
 
-        # zero time evolution
-        b_opt = np.array([], dtype='complex')
-        Psi = np.zeros([0, bin_size], dtype='complex')
-        A = np.zeros([D.shape[0], D.shape[0]], dtype='complex')
-        B = np.zeros([dmdc.B.shape[0], dmdc.B.shape[1]], dtype='complex')
+        D_dmdc_disc_1 = np.zeros([D.shape[0], D.shape[1]], dtype='complex')
 
-    # dmd reconstruction
-    #D_dmdc_A = dot(Phi, Psi)                                     ## D_dmd equivale al prodotto scalare tra i modi dinamici slow
-    D_dmdc_A = dot(A , D) 
-    D_dmdc_B = dot(B, U) 
+   
+    dmdc.D_dmdc_A_disc_1 = D_dmdc_A_disc_1
+    dmdc.D_dmdc_B_disc_1 = D_dmdc_B_disc_1
 
-    dmdc.D_dmdc_A = D_dmdc_A
-    dmdc.D_dmdc_B = D_dmdc_B
-    
-    D_dmdc = D_dmdc_A + D_dmdc_B
 
-    x = D_dmdc.shape[0]
-    y = D_dmdc.shape[1]
-    x = np.linspace(0, x, x)
-    y = np.linspace(0, y, y)
+
+    #x = D_dmdc_disc_1.shape[0]
+    #y = D_dmdc_disc_1.shape[1]
+    #x = np.linspace(0, x, x)
+    #y = np.linspace(0, y, y)
     #make_plot(D_dmdc.T, x=x, y=y, title='levels 0-' + str(level) + " nyq: " + str(nyq) + " step: " + str(step), figsize=(7.5, 5))
     #plt.figure()
     #plt.plot(y, D_dmdc_A[0,:], 'b', label='D_dmdc_A')
@@ -847,27 +902,26 @@ def mrdmdc(D, U, level=0, bin_num=0, offset=0, max_levels=20, max_cycles=10):
     #plt.show()
 
     # remove influence of slow modes
-    D = D - D_dmdc                                             ## Rimuove dai dati rimanenti le componenti slow                               
-
-
-
-    #node = type('Node', (object,), {})()
+    D = D - D_dmdc_disc_1                                                   
    
-    dmdc.dato = D_dmdc
+    #save matrix for the reconstruction
+    dmdc.dato = D_dmdc_disc_1
+
+    #save eigenvalues and modes with dt = step
+    dmdc.mu_SLOW_step = mu_SLOW_step
+    dmdc.phi_SLOW_step = Phi_SLOW_step
 
     
-    dmdc.mu = mu
-    dmdc.phi = Phi
 
 
-    nodes = [dmdc]
-
-
+    #the code will iterate splitting the data and input, stopping if level = max_levels or return when bin_size < nyq
     if level < max_levels:
-        split = floor(bin_size / 2) # where to split           ## ceil(x) approssima per eccesso x
+        split = floor(bin_size / 2) # where to split           ## ceil(x) approximate by excess
         nodes += mrdmdc(
             D[:,:split],
-            U[:,:split],
+            #U[:,:split],                          ##################################
+            U[:split],
+            number_node = number_node + 1,
             level=level+1,
             bin_num=2*bin_num,
             offset=offset,
@@ -876,29 +930,34 @@ def mrdmdc(D, U, level=0, bin_num=0, offset=0, max_levels=20, max_cycles=10):
             )
         nodes += mrdmdc(
             D[:,split:],
-            U[:,split:],     #aggiunta da alessandro
+            #U[:,split:],                        #########################
+            U[split:],
+            number_node = number_node + 1,
             level=level+1,
             bin_num=2*bin_num+1,
             offset=offset+split,
             max_levels=max_levels,
             max_cycles=max_cycles,
             )
+        #With every iteration of the algorithm there is an addition of a node (that is a DMDc object) in an array
+        #At the end the algorithm return the array with nodes processed in all iterations
     return nodes
 
-nodes = mrdmdc(D_train, U_train)
+
+number_node = 0
+nodes = mrdmdc(D_train, U_train, number_node)
 
 
 
     
 
 
-
-#gabriele
+'''
 def dimensionamento(dataset, column):
 
-    '''this function allow to plot the graphic of the system during his reconstruction with the dimension of the original system
-        an example a matrix 40x4 become 40x7160 
-    '''
+    #this function allow to plot the graphic of the system during his reconstruction with the dimension of the original system
+    #an example a matrix 40x4 become 40x7160 
+
     # Calcola il fattore di ripetizione per ogni colonna
     fattore_ripetizione = math.ceil(column / dataset.shape[1])    #approssimo per eccesso 
     # Espandi le colonne della matrice
@@ -907,14 +966,13 @@ def dimensionamento(dataset, column):
     matrice_finale = matrice_finale[:, :column]         #qui mi faccio il troncamento
     
     return matrice_finale
+'''
 
 
 
 
-
-#gabriele
 def iteration_level(nodes):
-    '''this function allow to know the level of iteration that mrdmdc done'''
+    #this function allow to know the level of iterations that mrdmdc done
     level = 0
     for n in nodes:
         if n.level > level:
@@ -925,46 +983,57 @@ def iteration_level(nodes):
 
 
 
-
-
-'''
-la funzione hstack fa esattamente quello che si vede nell'esempio, i nodi sono messi in "ordine" (se non sbaglio
-c'era un possibile dubbio sul cambio di bin-size ogni volta che cambiava livello), perchè vengono presi solamente i nodi 
-del livello finale, quindi l'ordine con la quale vengono prelevati è FIFO (cioè i nodi che si trovano con il
-livello maggiore in posizione con l'indice minore sono quelli che vengono inseriti prima nella matrice ricostruita)
-
-In questo caso ad esempio con i dati di train vengono inseriti prima il nodo 9 ed il nodo 10, che sono i nodi che hanno il livello
-massimo di ricorsione che si trovano con l'indice più piccolo tra i nodi con il livello massimo
-'''
+# start the reconstruction of data train
 colors = plt.cm.rainbow(np.linspace(0, 1, iteration_level(nodes) + 1))
 
-D_mrdmdc = np.zeros([row_tot, column_train], dtype = complex)   #dichiaro una matrice nulla da riempire 
+#declare variable that filled up in the reconstruction
+D_mrdmdc = np.zeros([row_tot, column_train], dtype = complex)    
 D_mrdmdc_A = np.zeros([row_tot, column_train], dtype = complex)
 D_mrdmdc_B = np.zeros([row_tot, column_train], dtype = complex)
 
+for level in range(0 , iteration_level(nodes) + 1):
+
+    # extract and sort relevant nodes of single level 
+    nodes_level = [n for n in nodes if n.level == level]
+    nodes_level = sorted(nodes_level, key=lambda n: n.bin_num)
+
+    #horizontal stack of reconstructed matrices of nodes with same level (stack reconstructed snapshots in order)
+    D_mrdmdc_level_reconstruction = np.hstack([n.dato for n in nodes_level])
+    
+    #sum every reconstructed level 
+    D_mrdmdc += D_mrdmdc_level_reconstruction
+
+    #save step and nyq values, they can be seen in the plots
+    nyq = nodes_level[0].nyq
+    step = nodes_level[0].step
+
+    #plots of the reconstruction matrix and of the first column (during the reconstruction)
+    x = D_mrdmdc.shape[0]
+    y = D_mrdmdc.shape[1]
+    x = np.linspace(0, x, x)
+    y = np.linspace(0, y, y)
+    #make_plot(D_mrdmdc.T, x=x, y=y, title='levels 0-' + str(level) + " nyq: " + str(nyq) + " step: " + str(step), figsize=(7.5, 5))
+    #comparison(D_train, D_mrdmdc, level)
+
+
+#this part helps to see all reconstructed matrices of levels in one plot 
+D_mrdmdc = np.zeros([row_tot, column_train], dtype = complex)    
 plt.figure()
+
 for level in range(0 , iteration_level(nodes) + 1):
 
     # extract relevant nodes
     nodes_level = [n for n in nodes if n.level == level]
     nodes_level = sorted(nodes_level, key=lambda n: n.bin_num)
 
-    D_mrdmdc_level_reconstruction = np.hstack(n.dato for n in nodes_level)
+    D_mrdmdc_level_reconstruction = np.hstack([n.dato for n in nodes_level])
 
     plt.plot(t_train, D_mrdmdc_level_reconstruction[0,:], color=colors[level], label='D_mrdmdc level: ' + str(level))
 
-    #level_rec_ridimensionato = dimensionamento(level_reconstruction, column_train)
     D_mrdmdc += D_mrdmdc_level_reconstruction
 
     nyq = nodes_level[0].nyq
     step = nodes_level[0].step
-
-    x = D_mrdmdc.shape[0]
-    y = D_mrdmdc.shape[1]
-    x = np.linspace(0, x, x)
-    y = np.linspace(0, y, y)
-    #make_plot(D_mrdmdc.T, x=x, y=y, title='levels 0-' + str(level) + " nyq: " + str(nyq) + " step: " + str(step), figsize=(7.5, 5))
-    #confronto(D_train, D_mrdmdc, level)
 
 plt.plot(t_train, D_mrdmdc[0,:], 'k', label='Reconstructed system')
 
@@ -973,25 +1042,26 @@ plt.legend()
 plt.show()
 
 
-
-
+#this part helps to see A*X and B*U of each levels
+'''
 colors = plt.cm.rainbow(np.linspace(0, 1, iteration_level(nodes) + 1)) 
 
 for level in range (0, iteration_level(nodes) + 1):
     nodes_level = [n for n in nodes if n.level == level]
     nodes_level = sorted(nodes_level, key=lambda n: n.bin_num)
 
-    D_mrdmdc_level_A = np.hstack(n.D_dmdc_A for n in nodes_level)
+    D_mrdmdc_level_A = np.hstack([n.D_dmdc_A_disc_1 for n in nodes_level])
     plt.figure(figsize=(16,6))
     plt.subplot(121)
     plt.plot(t_train, D_mrdmdc_level_A[0,:], color=colors[level], label='D_mrdmdc_A level: ' + str(level))
+    plt.legend()
 
-    D_mrdmdc_level_B = np.hstack(n.D_dmdc_B for n in nodes_level)
+    D_mrdmdc_level_B = np.hstack([n.D_dmdc_B_disc_1 for n in nodes_level])
     plt.subplot(122)
     plt.plot(t_train, D_mrdmdc_level_B[0,:], color=colors[level], label='D_mrdmdc_B level: ' + str(level))
     plt.legend()
     plt.show()
-    
+'''
 
     
 
@@ -1001,7 +1071,7 @@ for level in range (0, iteration_level(nodes) + 1):
 
 
 
-
+#Comparison between original data and reconstructed data
 plt.figure(figsize=(16, 6))
 
 plt.subplot(121)
@@ -1047,15 +1117,15 @@ def R2(y_true, y_pred):
 
 
  
-print("Errore MSE:")
+print("MSE:")
 print((mean_squared_error(D_mrdmdc.real.T,D_train.real.T)))
-print ("errore MAPE: ")
+print ("MAPE: ")
 print (MAPE(D_mrdmdc.real.T , D_train.real.T),"%")
-print ("errore MAE: ")
+print ("MAE: ")
 print(MAE(D_mrdmdc.real.T , D_train.real.T))
-print ("errore RMSE: ")
+print ("RMSE: ")
 print(RMSE(D_mrdmdc.real.T , D_train.real.T))
-print ("errore R2: ")
+print ("R2: ")
 print(R2(D_mrdmdc.real.T , D_train.real.T))
 
 
@@ -1078,31 +1148,8 @@ plt.show()
 
 
 
-'''
-vediamo di mostrare le B e le A_tilde per ogni livello mediate
-'''
 
-'''mi faccio restituire il valore massimo di B rispetto a tutti i nodi'''
-'''
-def max_value(nodes):
-    max_value_B = np.max([np.max(node.B) for node in nodes])
-    max_value_A_tilde = np.max([np.max(node._Atilde._Atilde) for node in nodes])
-    min_value_B = np.min([np.max(node.B) for node in nodes])
-    min_value_A_tilde = np.min([np.max(node._Atilde._Atilde) for node in nodes])
-
-    #scelta scala B
-    if (max_value_B >= -(min_value_B)):
-        scale_B = max_value_B
-    else:
-        scale_B = -min_value_B
-
-#scelta scala A_tilde
-if (max_value_A_tilde >= -(min_value_A_tilde)):
-    scale_A_tilde = max_value_A_tilde
-else:
-    scale_A_tilde = -min_value_A_tilde
-'''
-
+# helps to set 0 value with withe colour
 def max_value(matrix):
     max_value = np.max([np.max(matrix)])
     min_value = np.min([np.min(matrix)])
@@ -1115,7 +1162,7 @@ def max_value(matrix):
 
 
 
-
+#plot of B, A_tilde, A for each level
 for level in range (0, iteration_level(nodes) + 1):
     nodes_level_B = []
     nodes_level_A_tilde = []
@@ -1123,19 +1170,18 @@ for level in range (0, iteration_level(nodes) + 1):
     for n in nodes:
         if n.level == level:
             nodes_level_B.append(n.B.real)
-            nodes_level_A_tilde.append(n._Atilde._Atilde)       #ho messo due volte _Atilde perchè la prima assegnazione è l'oggetto dmdunknownoperator
+            nodes_level_A_tilde.append(n._Atilde._Atilde)       # n.A_tilde is an object of class DMDcUnkonwnOperator, n.A_tilde.A_tilde is the matrix
             nodes_level_A.append(n.A)
-
+ 
     sum_level_B = sum(nodes_level_B)
     mean_level_B = sum_level_B / len(nodes_level_B)
     x = np.linspace(0, mean_level_B.shape[0], mean_level_B.shape[0])
     y = np.linspace(0, mean_level_B.shape[1], mean_level_B.shape[1])
     
     scale_B = max_value(mean_level_B)
-    make_plot(mean_level_B, x=y, y=x, title = 'Mean _B level: ' + str(level), xlabel = 'Input', ylabel = 'Output', vmin = -(scale_B), vmax = (scale_B), ticks = 40)    #self.B
+    #make_plot(mean_level_B, x=y, y=x, title = 'Mean _B level: ' + str(level), xlabel = 'Input', ylabel = 'Output', vmin = -(scale_B), vmax = (scale_B), ticks = 40)    #self.B
 
-    #la parte dell'A_tilde funziona solo se si tronca (cioè svd_rank = 0). con max_cycles uguale a 10 funziona anche con svd_rank=-1 in quanto si tronca a 40 (stati)
-    
+    #the sum of A_tilde works only if A_tilde is not truncated (svd_rank = -1) and also if the parameter max_cycles allow to have _D with shape[1] > shape[2] 
     '''
     sum_level_A_tilde = sum(nodes_level_A_tilde)
     mean_level_A_tilde = sum_level_A_tilde / len(nodes_level_A_tilde)
@@ -1153,13 +1199,14 @@ for level in range (0, iteration_level(nodes) + 1):
     y = np.linspace(0, mean_level_A.shape[1], mean_level_A.shape[1])
 
     scale_A = max_value(mean_level_A)
-    make_plot(mean_level_A, x=y, y=x, title = 'Mean A level: ' + str(level), xlabel = 'State', ylabel = 'Output', vmin = -(scale_A), vmax = (scale_A))   #self.A
+    #make_plot(mean_level_A, x=y, y=x, title = 'Mean A level: ' + str(level), xlabel = 'State', ylabel = 'Output', vmin = -(scale_A), vmax = (scale_A))   #self.A
     '''
+    
 
 
 
 
-'''vediamo di mostrare le A_tilde e le B dei nodi'''
+#plot of A_tilde and B for each node
 for level in range (0, 3):
     count = 0
     for node in nodes:
@@ -1182,31 +1229,49 @@ for level in range (0, 3):
 
 
 
-'''andiamo a plottare gli autovalori di ogni livello SENZA LA RIMOZIONE DEGLI SLOW'''
+#plots of eigenvalues with dt = step before the SLOW filtration and after, with the percentage of filtration for each levels, one level in one plot
 colors = plt.cm.rainbow(np.linspace(0, 1, iteration_level(nodes) + 1))
 for level in range (0, iteration_level(nodes) + 1):
+    #declaration of lists that will filled up for the plots
     eigenvalues = []
+    eigenvalues_SLOW = []
+    filtration = []
     for node in nodes:
         if node.level == level:
-            #eigenvalues.extend(node.eigs / ( 2 * pi * node.step))
-            eigenvalues.extend(node.eigs)
+            #when node.level == level save eigenvalues before the filtration and after it, this allow to plot all eigenvalues of each level in the same plot
+            step = node.step
+            rho = node.rho
+            eigenvalues.extend((np.abs(np.log(node.eigs) / (2 * pi * step))))
+            eigenvalues_SLOW.extend((np.abs(np.log(node.mu_SLOW_step) / (2 * pi * step))))
+            filtration.extend([node.percentage_of_filtration])
 
-    real_part = np.real(eigenvalues)
-    imag_part = np.imag(eigenvalues)
-    # Crea il grafico
+
+    real_part_eigenvalues = np.real(eigenvalues)
+    imag_part_eigenvalues = np.imag(eigenvalues)
+
+    real_part_eigenvalues_SLOW = np.real(eigenvalues_SLOW)
+    imag_part_eigenvalues_SLOW = np.imag(eigenvalues_SLOW)
+
+    percentage_of_filtration = sum(filtration) / len(filtration)
+    
+    
     plt.figure(figsize=(8, 8))
-    plt.scatter(real_part, imag_part, marker='x', color=colors[level], label='Eigen')
+
+    #also plot the circle to see wich eigenvalues was chosen like SLOW
+    circle = plt.Circle([0,0], radius = rho, fill = False)
+    plt.gca().add_patch(circle)
+
+    plt.scatter(real_part_eigenvalues, imag_part_eigenvalues, marker='x', color=colors[level], label='Eigen')
+    plt.scatter(real_part_eigenvalues_SLOW, imag_part_eigenvalues_SLOW, color = 'black', marker='x', label='Eigen SLOW')
 
     plt.axhline(0, color='black', linewidth=0.5, linestyle='--')
     plt.axvline(0, color='black', linewidth=0.5, linestyle='--')
 
-    # Imposta i titoli e la legenda
-    plt.title('Eigenvalues map level: ' + str(level))
+    plt.title('Eigenvalues map level: ' + str(level) + ' filtration: ' + str(percentage_of_filtration) + '%' + ' step:' + str(step))
     plt.xlabel('Real axis')
     plt.ylabel('Imaginary axis')
     plt.legend()
 
-    # Mostra il grafico
     plt.grid(True)
     plt.show()
 
@@ -1215,32 +1280,29 @@ for level in range (0, iteration_level(nodes) + 1):
 
 
 
-'''plotto il grafico con tutti gli autovalori dei vari livelli con colori diversi SENZA LA RIMOZIONE DEGLI SLOW'''
-    
-# Crea una lista di colori per ogni livello
+
+#plot of eigenvalues and eigenvalues SLOW with dt = step, all levels in one single plot
 colors = plt.cm.rainbow(np.linspace(0, 1, iteration_level(nodes) + 1))
 
-    # Crea il grafico con tutti gli autovalori
 plt.figure(figsize=(8, 8))
+plt.scatter([],[], color = 'black', label = "eigenvalues SLOW")
 
 for level in range(iteration_level(nodes) + 1):
     plt.scatter([],[], color = colors[level], label = "eigenvalues level: " + str(level))
     for node in nodes:
         if node.level == level:
-            #plt.scatter(node.eigs.real / (2* pi * node.step), node.eigs.imag / (2 * pi * node.step), marker='x', color=colors[level])
             plt.scatter(node.eigs.real, node.eigs.imag, marker='x', color=colors[level])
+            plt.scatter(node.mu_SLOW_step.real, node.mu_SLOW_step.imag, color = 'black', marker='x')
 
 
 plt.axhline(0, color='black', linewidth=0.5, linestyle='--')
 plt.axvline(0, color='black', linewidth=0.5, linestyle='--')
 
-    # Imposta i titoli e la legenda
-plt.title('Eigenvalues map per Livello')
-plt.xlabel('Asse Reale')
-plt.ylabel('Asse Immaginario')
+plt.title('Eigenvalues map of levels')
+plt.xlabel('Real axis')
+plt.ylabel('Imaginary axis')
 plt.legend()
 
-    # Mostra il grafico
 plt.grid(True)
 plt.show()
 
@@ -1261,31 +1323,33 @@ plt.show()
 
 
 
-'''andiamo a plottare gli autovalori di ogni livello CON LA RIMOZIONE DEGLI SLOW'''
+#plot of only eigenvalues SLOW with dt = step, each level in a single plot
 colors = plt.cm.rainbow(np.linspace(0, 1, iteration_level(nodes) + 1))
 for level in range (0, iteration_level(nodes) + 1):
     eigenvalues = []
+    filtration = []
     for node in nodes:
         if node.level == level:
-            #eigenvalues.extend(node.eigs / ( 2 * pi * node.step))
-            eigenvalues.extend(node.mu)
+            eigenvalues.extend(node.mu_SLOW_step)
+            filtration.extend([node.percentage_of_filtration])
+            step = node.step
 
     real_part = np.real(eigenvalues)
     imag_part = np.imag(eigenvalues)
-    # Crea il grafico
+
+    percentage_of_filtration = sum(filtration) / len(filtration)
+
     plt.figure(figsize=(8, 8))
     plt.scatter(real_part, imag_part, marker='x', color=colors[level], label='Eigen')
 
     plt.axhline(0, color='black', linewidth=0.5, linestyle='--')
     plt.axvline(0, color='black', linewidth=0.5, linestyle='--')
 
-    # Imposta i titoli e la legenda
-    plt.title('Eigenvalues map level SLOW: ' + str(level))
+    plt.title('Eigenvalues SLOW map dt = step level: ' + str(level) + ' filtration: ' + str(percentage_of_filtration) + '%' + ' step' + str(step))
     plt.xlabel('Real axis')
     plt.ylabel('Imaginary axis')
     plt.legend()
 
-    # Mostra il grafico
     plt.grid(True)
     plt.show()
 
@@ -1294,12 +1358,10 @@ for level in range (0, iteration_level(nodes) + 1):
 
 
 
-'''plotto il grafico con tutti gli autovalori dei vari livelli con colori diversi CON LA RIMOZIONE DEGLI SLOW'''
-    
-# Crea una lista di colori per ogni livello
+
+#plot of all eigenvalues SLOW with dt = step of all levels in a single plot 
 colors = plt.cm.rainbow(np.linspace(0, 1, iteration_level(nodes) + 1))
 
-    # Crea il grafico con tutti gli autovalori
 plt.figure(figsize=(8, 8))
 
 for level in range(iteration_level(nodes) + 1):
@@ -1307,21 +1369,163 @@ for level in range(iteration_level(nodes) + 1):
     for node in nodes:
         if node.level == level:
             #plt.scatter(node.eigs.real / (2* pi * node.step), node.eigs.imag / (2 * pi * node.step), marker='x', color=colors[level])
-            plt.scatter(node.mu.real, node.mu.imag, marker='x', color=colors[level])
+            plt.scatter(node.mu_SLOW_step.real, node.mu_SLOW_step.imag, marker='x', color=colors[level])
 
 
 plt.axhline(0, color='black', linewidth=0.5, linestyle='--')
 plt.axvline(0, color='black', linewidth=0.5, linestyle='--')
 
-    # Imposta i titoli e la legenda
-plt.title('Eigenvalues map SLOW per Livello')
+plt.title('Eigenvalues SLOW map dt = step')
 plt.xlabel('Asse Reale')
 plt.ylabel('Asse Immaginario')
 plt.legend()
 
-    # Mostra il grafico
 plt.grid(True)
 plt.show()
+
+
+
+
+
+
+
+
+
+#plot of eigenvalues SLOW of each level in continuous
+colors = plt.cm.rainbow(np.linspace(0, 1, iteration_level(nodes) + 1))
+for level in range (0, iteration_level(nodes) + 1):
+    eigenvalues = []
+    #filtration = []
+    for node in nodes:
+        if node.level == level:
+            step = node.step
+            if node.mu_SLOW_cont is None:
+                break
+            eigenvalues.extend(node.mu_SLOW_cont)
+            #filtration.extend([node.percentage_of_filtration])
+
+    real_part = np.real(eigenvalues)
+    imag_part = np.imag(eigenvalues)
+
+    #if len(filtration) != 0:
+    #   percentage_of_filtration = sum(filtration) / len(filtration)
+
+    plt.figure(figsize=(8, 8))
+    plt.scatter(real_part, imag_part, marker='x', color=colors[level], label='Eigen')
+
+    plt.axhline(0, color='black', linewidth=0.5, linestyle='--')
+    plt.axvline(0, color='black', linewidth=0.5, linestyle='--')
+
+    plt.title('Eigenvalues SLOW map in continuous level: ' + str(level) + ' step:' +str(step))
+    plt.xlabel('Real axis')
+    plt.ylabel('Imaginary axis')
+    plt.legend()
+
+    plt.grid(True)
+    plt.show()
+
+
+
+    
+#plot of all eigenvalues SLOW in continuous in the same plot 
+colors = plt.cm.rainbow(np.linspace(0, 1, iteration_level(nodes) + 1))
+
+plt.figure(figsize=(8, 8))
+
+for level in range(iteration_level(nodes) + 1):
+    plt.scatter([],[], color = colors[level], label = "eigenvalues level: " + str(level))
+    for node in nodes:
+        if node.level == level:
+            if node.mu_SLOW_cont is None:
+                break
+            plt.scatter(node.mu_SLOW_cont.real, node.mu_SLOW_cont.imag, marker='x', color=colors[level])
+
+plt.axhline(0, color='black', linewidth=0.5, linestyle='--')
+plt.axvline(0, color='black', linewidth=0.5, linestyle='--')
+
+plt.title('Eigenvalues SLOW map in continuous')
+plt.xlabel('Real axis')
+plt.ylabel('Imaginary axis')
+plt.legend()
+
+plt.grid(True)
+plt.show()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#plot of eigenvalues SLOW of each level with dt = 1
+colors = plt.cm.rainbow(np.linspace(0, 1, iteration_level(nodes) + 1))
+
+for level in range (0, iteration_level(nodes) + 1):
+    eigenvalues = []
+    #filtration = []
+    for node in nodes:
+        if node.level == level:
+            step = node.step
+            if node.mu_SLOW_cont is None:
+                break
+            eigenvalues.extend(node.mu_SLOW_1)
+            #filtration.extend([node.percentage_of_filtration])
+
+    real_part = np.real(eigenvalues)
+    imag_part = np.imag(eigenvalues)
+
+    #if len(filtration) != 0:
+    #   percentage_of_filtration = sum(filtration) / len(filtration)
+
+    plt.figure(figsize=(8, 8))
+    plt.scatter(real_part, imag_part, marker='x', color=colors[level], label='Eigen')
+
+    plt.axhline(0, color='black', linewidth=0.5, linestyle='--')
+    plt.axvline(0, color='black', linewidth=0.5, linestyle='--')
+
+    plt.title('Eigenvalues SLOW map dt = 1 level: ' + str(level) + ' step:' +str(step))
+    plt.xlabel('Real axis')
+    plt.ylabel('Imaginary axis')
+    plt.legend()
+
+    plt.grid(True)
+    plt.show()
+
+
+
+
+#plot of all eigenvalues SLOW with dt = 1 in the same plot 
+colors = plt.cm.rainbow(np.linspace(0, 1, iteration_level(nodes) + 1))
+
+plt.figure(figsize=(8, 8))
+
+for level in range(iteration_level(nodes) + 1):
+    plt.scatter([],[], color = colors[level], label = "eigenvalues level: " + str(level))
+    for node in nodes:
+        if node.level == level:
+            if node.mu_SLOW_cont is None:
+                break
+            plt.scatter(node.mu_SLOW_1.real, node.mu_SLOW_1.imag, marker='x', color=colors[level])
+
+plt.axhline(0, color='black', linewidth=0.5, linestyle='--')
+plt.axvline(0, color='black', linewidth=0.5, linestyle='--')
+
+plt.title('Eigenvalues SLOW map dt = 1')
+plt.xlabel('Real axis')
+plt.ylabel('Imaginary axis')
+plt.legend()
+
+plt.grid(True)
+plt.show()
+
 
 
 
