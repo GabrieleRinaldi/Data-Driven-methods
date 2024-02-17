@@ -189,40 +189,11 @@ class DMDBUnknownOperator(DMDControlOperator):
             [Ur.T.conj(), Y, Vp, np.diag(np.reciprocal(sp)), Up1.T.conj(), Ur]
         )
 
-        #GABRIELE non viene utilizzata, serve solo per dimostrare che la A in reconstructed_data è fatta così 
-        _A = np.linalg.multi_dot(
-            [Ur, Ur.T.conj(), Y, Vp, np.diag(np.reciprocal(sp)), Up1.T.conj()]
-        )
-
-        x = np.linspace(0, self._Atilde.shape[0], self._Atilde.shape[0])
-        y = np.linspace(0, self._Atilde.shape[1], self._Atilde.shape[1])
-        max_value = np.max([np.max(self._Atilde)])
-        min_value = np.min([np.min(self._Atilde)])
-        if (max_value >= -(min_value)):
-            scale = max_value
-        else:
-            scale = -min_value
-        
-        #make_plot(self._Atilde, x=y, y=x, title = '_Atilde ', xlabel = 'Input', ylabel = 'Output', vmin = -(scale), vmax = scale) 
-            
-        x = np.linspace(0, _A.shape[0], _A.shape[0])
-        y = np.linspace(0, _A.shape[1], _A.shape[1])
-        max_value = np.max([np.max(_A)])
-        min_value = np.min([np.min(_A)])
-        if (max_value >= -(min_value)):
-            scale = max_value
-        else:
-            scale = -min_value
-        
-        #make_plot(_A, x=y, y=x, title = '_A ', xlabel = 'Input', ylabel = 'Output', vmin = -(scale), vmax = scale) 
-
-
-
         self._compute_eigenquantities()
         self._compute_modes(Y, sp, Vp, Up1, Ur)
 
         Btilde = np.linalg.multi_dot(
-            [Ur.T.conj(), Y, Vp, np.diag(np.reciprocal(sp)), Up2.T.conj()]
+            [Ur.T.conj(), Y, Vp, np.diag(np.reciprocal(sp)), Up2.T.conj()] 
         )
 
         return Ur, Ur.dot(Btilde)
@@ -304,6 +275,9 @@ class DMDc(DMDBase):
 
         self.A = None
 
+        self.D_dmdc_A = None
+        self.D_dmdc_B = None
+
         self.mu_SLOW_step = None
         self.phi_SLOW_step = None
 
@@ -311,8 +285,6 @@ class DMDc(DMDBase):
         self.mu_SLOW_cont = None
 
         self.sys_disc_1 = None
-        self.D_dmdc_A_disc_1 = None
-        self.D_dmdc_B_disc_1 = None
         self.mu_SLOW_1 = None
 
         self.percentage_of_filtration = None
@@ -540,87 +512,161 @@ class DMDc(DMDBase):
 
 
 
-    
-## Dataset, complex or real
-    
-#D_mat = scipy.io.loadmat('real_eig_timeseries.mat')
-#D_mat_list = [[element for element in upperElement] for upperElement in D_mat['x']]
-    
-D_mat = scipy.io.loadmat('complex_eig_timeseries.mat')
-D_mat_list = [[element for element in upperElement] for upperElement in D_mat['x']]
-    
-#SRU dataset
+'''To select dataset for training change the parameter "dataset":
+1 SRU dataset
+2 Syntetic Complex dataset with complete U matrix (200 x 7160)
+3 Syntetic Complex dataset with U[161,:] (fifth input with no delay)
+4 V2G dataset
+'''
+dataset = 1
 
-D_mat = scipy.io.loadmat('XU_DMDc.mat')
-#D_mat_list = [[element for element in upperElement] for upperElement in D_mat['X']]
-U_mat_list = [[element for element in upperElement] for upperElement in D_mat['U']]
+#this parameter is used to decide which column to show
+column_to_show = 0
 
-#to select dataset uncomment one of them and D_mat_list specific for it
+''':param svd_rank: the rank for the truncation; If 0, the method computes the
+        optimal rank and uses it for truncation; if positive interger, the
+        method uses the argument for the truncation; if float between 0 and 1,
+        the rank is the number of the biggest singular values that are needed
+        to reach the 'energy' specified by `svd_rank`; if -1, the method does
+        not compute truncation.'''
+svd_rank_set = -1
 
+#filtration parameter, the larger it is the lower will be the filtration
+slow_feauture_scale = 150
 
-#Transform variables to numpy array, allow us to use they in python ambience
-D = np.array(D_mat_list)
-#U = np.array(U_mat_list)
-U = np.array(U_mat_list)[161,:]
-#U = np.zeros([D.shape[0], D.shape[1]], dtype='complex')
+'''to select the type of reconstruction, change the parameter 'reconstruction':
+1 Reconstruction with A and B with dt = step
+2 Reconstruction with A and B with dt = 1
+3 Reconstruction with forced response (work in progress)'''
 
-
-#Normalization 
-#D = scipy.stats.zscore(D)
-#U = scipy.stats.zscore(U)
-
-
-#Establish the number of snapshots for train and test
-row_tot = D.shape[0]
-column_tot = D.shape[1]
-
-#indicates the percentage of snapshots for train and test
-training_mode = 0.9
-
-column_train = int(column_tot * training_mode)
-
-# training snapshots
-D_train = D[:,:int((column_train))]
-#U_train = U[:,:int(column_train)]            ########### uncomment if U is a matrix and not an array 
-U_train = U[:int(column_train)]
-
-# testing snapshots
-D_test = D[:,D_train.shape[1]:]
-#U_test = U[:,U_train.shape[1]:]
-#for the testing mode we take che rest of array that remain from the division for the training 
+reconstruction = 3
 
 
+
+
+# SRU dataset
+if dataset == 1:
+    D_mat = scipy.io.loadmat('XU_DMDc.mat')
+    D_mat_list = [[element for element in upperElement] for upperElement in D_mat['X']]
+    U_mat_list = [[element for element in upperElement] for upperElement in D_mat['U']]
+    D_train = np.array(D_mat_list)
+    U_train = np.array(U_mat_list)
+
+    # matrix plot
+    matrix_xlabel = 'Delayed state'
+    matrix_ylabel = 'Time (minute)'
+    vmin = np.amax(D_train)
+    vmax = np.amin(D_train)
+
+    # array plot (when the plot is of one state)
+    array_xlabel = 'Time (minute)'
+    array_ylabel = 'State'
+    array_title = 'State: x_' + str(column_to_show + 1)
+
+
+# Syntetic Complex dataset
+elif dataset == 2:
+    D_mat = scipy.io.loadmat('complex_eig_timeseries.mat')
+    D_mat_list = [[element for element in upperElement] for upperElement in D_mat['x']]
+    D_mat = scipy.io.loadmat('XU_DMDc.mat')
+    U_mat_list = [[element for element in upperElement] for upperElement in D_mat['U']]
+    D_train = np.array(D_mat_list)
+    U_train = np.array(U_mat_list)
+
+    # matrix plot
+    matrix_xlabel = 'State'
+    matrix_ylabel = 'Samples'
+    vmin = np.amax(D_train)
+    vmax = np.amin(D_train)
+
+    # array plot (when the plot is of one state)
+    array_xlabel = 'Samples'
+    array_ylabel = 'State'
+    array_title = 'State: x_' + str(column_to_show + 1)
+
+
+# Syntetic Complex dataset with U[161,:]
+elif dataset == 3:
+    D_mat = scipy.io.loadmat('complex_eig_timeseries.mat')
+    D_mat_list = [[element for element in upperElement] for upperElement in D_mat['x']]
+
+    D_mat = scipy.io.loadmat('XU_DMDc.mat')
+    U_mat_list = [[element for element in upperElement] for upperElement in D_mat['U']]
+
+    D_train = np.array(D_mat_list)
+    U_train = np.array(U_mat_list)[161,:]
+    U_train = U_train[:,np.newaxis].T
+
+    # matrix plot
+    matrix_xlabel = 'State'
+    matrix_ylabel = 'Samples'
+    vmin = np.amax(D_train)
+    vmax = np.amin(D_train)
+
+    # array plot (when the plot is of one state)
+    array_xlabel = 'Samples'
+    array_ylabel = 'State'
+    array_title = 'State: x_' + str(column_to_show + 1)
+
+
+# V2G dataset
+elif dataset == 4:
+    D_mat = scipy.io.loadmat('TrainYearData_subset.mat')
+    D_mat_list = [[element for element in upperElement] for upperElement in D_mat['Train']]
+    U_mat_list = [[element for element in upperElement] for upperElement in D_mat['Train']]
+    D_train = np.array(D_mat_list)[0,:]
+    D_train = D_train[:,np.newaxis].T
+    U_train = np.array(U_mat_list)[1:,:]
+
+    # matrix plot
+    matrix_xlabel = 'Available Aggregated Capacity'
+    matrix_ylabel = 'Samples (30 minutes)'
+    vmin = np.amax(D_train)
+    vmax = np.amin(D_train)
+
+    # array plot (when the plot is of one state)
+    array_xlabel = 'Samples (30 minutes)'
+    array_ylabel = 'AAC'
+    array_title = 'State: ACC_' + str(column_to_show + 1)
+
+
+
+#number of rows of the dataset
+x_train = np.linspace(0, D_train.shape[0], D_train.shape[0])
+
+#number of columns of the dataset
+t_train = np.linspace(0, D_train.shape[1], D_train.shape[1])
 
 
 
 #this function allow to make plot like image (it is used to plot matrix values)
-def make_plot(X, x=None, y=None, figsize=(12, 8), title='', xlabel='Delayed State', ylabel='Time (minute)', vmin = None, vmax = None, ticks = None):
+def make_plot(X, x=None, y=None, title='', xlabel = None, ylabel = None, vmin = None, vmax = None, ticks = None):
     """
     Plot of the data X
     """
-    plt.figure(figsize=figsize)
+    plt.figure()
     plt.title(title)
-    X = np.real(X)
-    CS = plt.pcolormesh(x, y, X, vmin = vmin, vmax = vmax, cmap= "RdBu_r")
-    cbar = plt.colorbar(CS)
-    if ticks != None:
+    if vmin is not None:
+        CS = plt.pcolormesh(x, y, X, vmin = vmin, vmax = vmax, cmap= "viridis")
+    else:
+        plt.pcolor(X.real)
+    plt.colorbar()
+    if ticks is not None:
         plt.xticks(np.arange(0, len(X[0]), ticks))
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
     plt.show()
 
 
-#https://numpy.org/doc/stable/reference/generated/numpy.linspace.html
-x_train = np.linspace(0, row_tot, row_tot)
-dt0 = 1    #1 minute
-t_train = np.linspace(0, int(dt0 * column_train), int(dt0 * column_train))
-
-make_plot(D_train.T, x=x_train, y=t_train, title = 'Training data')
+make_plot(D_train.T, x=x_train, y=t_train, title = 'Training dataset', xlabel = matrix_xlabel, ylabel = matrix_ylabel)
 
 
-#plot the first column of the dataset selected
+#plot of the state of the dataset selected
 plt.figure()
-plt.plot(t_train, D_train[0,:], 'g', label='Original system')
+plt.plot(t_train, D_train[column_to_show,:], 'g', label='Experimental data')
+plt.title(array_title)
+plt.xlabel(array_xlabel)
+plt.ylabel(array_ylabel)
 plt.legend()
 plt.show()
 
@@ -629,15 +675,18 @@ plt.show()
 
 #this function make a comparison between the first column of the original system and the reconstructed system
 def comparison(D, D_mrdmdc_level, level):
-        D0 = D[0,:]
-        D_0 = D_mrdmdc_level[0,:]
+        D0 = D[column_to_show,:]
+        D_0 = D_mrdmdc_level[column_to_show,:]
 
         t_train = D0.shape[0]
         t_train = np.linspace(0, t_train, t_train)
     
         plt.figure()
-        plt.plot(t_train, D0.real, 'b', label='Misura')
+        plt.plot(t_train, D0.real, 'b', label='Experimental data')
         plt.plot(t_train, D_0.real, 'g', label='mrDMDc level: ' + str(level))
+        plt.xlabel(array_xlabel)
+        plt.ylabel(array_ylabel)
+        plt.title(array_title)
         plt.legend()
         plt.show()
 
@@ -652,8 +701,8 @@ def comparison(D, D_mrdmdc_level, level):
 
 
 
-def mrdmdc(D, U, number_node, level=0, bin_num=0, offset=0, max_levels=20, max_cycles=10):
-    """Compute the multi-resolution DMD on the dataset `D`, returning a list of nodes
+def mrdmdc(D, U, level=0, bin_num=0, offset=0, max_levels=20, max_cycles=10):
+    """Compute the multi-resolution DMDc on the dataset `D`, returning a list of nodes
     in the hierarchy. Each node represents a particular "time bin" (window in time) at
     a particular "level" of the recursion (time scale). The node is an object consisting
     of the various data structures generated by the DMD at its corresponding level and
@@ -661,8 +710,7 @@ def mrdmdc(D, U, number_node, level=0, bin_num=0, offset=0, max_levels=20, max_c
     during the recursion and should not be modified unless you know what you are doing.
     The `max_levels` parameter controls the maximum number of levels. The `max_cycles`
     parameter controls the maximum number of mode oscillations in any given time scale 
-    that qualify as "slow". The `do_svht` parameter indicates whether or not to perform
-    optimal singular value hard thresholding."""
+    that qualify as "slow"."""
      
     
     # 4 times nyquist limit to capture cycles                 
@@ -681,20 +729,9 @@ def mrdmdc(D, U, number_node, level=0, bin_num=0, offset=0, max_levels=20, max_c
     # extract subsamples, take a value every step for D and U
     #step = floor(bin_size / nyq)     #floor truncate the decimal part of number   
     step = bin_size // nyq        
-    _D = D[:,::(step)]                                           
-    #_U = U[:,::(step)]             #################
-    _U = U[::(step)]
-    
+    D_sub_step = D[:,::(step)]                                           
+    U_sub_step = U[:,::(step)]             ###########################
 
-
-
-
-    #Plot of subsampled data
-    x = _D.shape[0]
-    y = _D.shape[1]
-    x = np.linspace(0, x, x)
-    y = np.linspace(0, y, y)
-    #make_plot(D0.T, x=x, y=y, title=" nyq: " + str(nyq) + " step: " + str(step), figsize=(7.5, 5))
 
 
 
@@ -716,18 +753,17 @@ def mrdmdc(D, U, number_node, level=0, bin_num=0, offset=0, max_levels=20, max_c
     dmdc.nyq = nyq
 
 
-    #fitting model from data and input passed to algorithm, take one snapshot less than D
-    #dmdc.fit(_D , _U[:,1:])          ###################
-    dmdc.fit(_D , _U[1:])
+    #fitting model from data and input passed to algorithm, take the snapshot at k+1
+    dmdc.fit(D_sub_step , U_sub_step[:,1:])
 
 
     #extract eigenvalues and modes from DMDc object
     mu = dmdc.eigs
     Phi = dmdc.modes
-
+    
 
     #Slow filtration
-    rho = 11*max_cycles / bin_size                               
+    rho = slow_feauture_scale*max_cycles / bin_size                               
     dmdc.rho = rho
 
 
@@ -745,21 +781,20 @@ def mrdmdc(D, U, number_node, level=0, bin_num=0, offset=0, max_levels=20, max_c
 
     # extract slow modes (perhaps empty)                       
     mu_SLOW_step = mu[slow]                                               
-    Phi_SLOW_step = Phi[:,slow]                                          
+    Phi_SLOW_step = Phi[:,slow]                                        
     
 
     #if found slow mode...
     if n > 0:                                                  
-
+        
+        '''Definition of StateSpace discrete system with dt = step'''
         #Calculate A with slow features, they were calcuted with dt = step 
         A_disc_step = np.linalg.multi_dot(                                                  
             [Phi_SLOW_step, np.diag(mu_SLOW_step), np.linalg.pinv(Phi_SLOW_step)]    
         )
 
-
         #Extract B from dmdc object, also calculate with dt = step by method .fit (when we call dmdc.fit)         
-        B_disc_step = dmdc.B
-
+        B_disc_step = dmdc.B     
 
         #Considerate two matrices C and D
         #matrix C with a ones column and the rest with 0 to extract the first state (that is not delayed) 
@@ -767,21 +802,22 @@ def mrdmdc(D, U, number_node, level=0, bin_num=0, offset=0, max_levels=20, max_c
         C_disc[:,0] = 1
 
         #matrix D with 0 because the inputs don't influence directly the exit (strictly own system)
-        #D_disc = np.zeros([A_disc_step.shape[0], B_disc_step.shape[1]], dtype = 'complex')            ##########################
-        D_disc = np.zeros([A_disc_step.shape[0]], dtype = 'complex')
-        
-        
-        #generate a discrete system with dt = step, because we want to see eigenvalues in continuous
+        D_disc = np.zeros([A_disc_step.shape[0], B_disc_step.shape[1]], dtype = 'complex')            
+
+        #declaration of StateSpace system, helps to convert discrete system with dt = step in continuous and see eigenvalues in continuous
         sys_disc_step = harold.State(A_disc_step, B_disc_step , C_disc, D_disc, dt = (step))
 
-
+       
+        '''Defintion of StateSpace continuous system'''
         #to see eigenvalues in continuous used the method of the Harold library "undiscretize" that allow to pass from dicrete system to continuous system 
         sys_cont = harold.undiscretize(sys_disc_step, method='tustin')  
+
         #extract matrices from continuous system
         A_cont = sys_cont.a
         B_cont = sys_cont.b
         C_cont = sys_cont.c
         D_cont = sys_cont.d
+        
         #calculate eigenvalues from A matrix
         [dmdc.mu_SLOW_cont,eigenvectors] = eig(A_cont)
 
@@ -789,104 +825,238 @@ def mrdmdc(D, U, number_node, level=0, bin_num=0, offset=0, max_levels=20, max_c
         #to print pzmap (pole-zero map) about system, there is the necessity to use another library because Harold library don't support the pzmap method
         #the library that allow to see pzmap is the "Control Library for Python" doc: https://python-control.readthedocs.io/en/0.9.4/index.html
         sys_cont_control = ct.StateSpace(A_cont, B_cont, C_cont, D_cont)    
-        #ct.pzmap(sys_cont_control, title= 'Pole Zero Map node: ' + str(number_node))
+        #ct.pzmap(sys_cont_control, title= 'Pole Zero Map node: ' + str(number_node) + ' level: ' + str(level) + ' step: ' + str(step))
         #plt.show()
+
         
-        
+        '''Definition of StateSpace discrete system with dt = 1'''
         #for the reconstruction there is a necessity to reconvert system in discrete state, but with dt = 1 because every sample must be rescaled from distance step to 1
         sys_disc_1 = harold.discretize(sys_cont, dt = 1, method = 'tustin')
 
         #extract matrices, they are used to reconstruct 
         A_disc_1 = sys_disc_1.a
-        #B_disc_1 = sys_disc_1.b       #######################  if U is a column, comment the instruction in this row and uncomment the one immediately below.   
-        B_disc_1 = sys_disc_1.b[:,0]       ############################ COMMENTO DA CANCELLARE -> va bene come assegnazione da riga a colonna
+        B_disc_1 = sys_disc_1.b       
+        C_disc_1 = sys_disc_1.c
+        D_disc_1 = sys_disc_1.d
 
         #extraction of eigenvalues with dt = 1
         [dmdc.mu_SLOW_1,eigenvectors] = eig(A_disc_1)
-        
-        '''Now the algorithm have the matrices A and B to compute the reconstructed matrix for the node (DMDc object)'''
-        
-        #the reconstruction for one node starts from the initial conditions (delcared as an array). This array will become a matrix after the reconstruction code block
-        D_dmdc_disc_1 = [D[:, 0]].copy()
 
-        D_dmdc_A_disc_1 = D_dmdc_disc_1.copy()    
-        D_dmdc_B_disc_1 = []  #np.zeros([D_dmdc_cont[0].shape[0]])
+       
 
-        #number of rows expected after the reconstruction
-        expected_shape = D_dmdc_disc_1[0].shape
-        
-        
+        #plot of A_disc_1, A_disc_step, A_cont
+        x = A_disc_1.shape[0]
+        y = A_disc_1.shape[1]
+        x = np.linspace(0, x, x)
+        y = np.linspace(0, y, y)
+        #make_plot(A_disc_1, x=y, y=x, title=   'A_disc_1' + " nyq: " + str(nyq) + " step: " + str(step), figsize=(7.5, 5), xlabel = 'State', ylabel = 'Output')
 
-        #the reconstruction continue with the calculation about data and inputs like DMDc algorithm but with the difference that the reconstrution is with all inputs and not only subsampled inputs
-        #data[i] rappresenta l'istante i-esimo dei dati dello stato      #######################DA TRADURRE
-        #u rappresenta l'istante i-esimo dei dati di input
-        #for i, u in enumerate(U[:,1:].T):            #########################
-        for i, u in enumerate(U[1:].T):
-            arr = (A_disc_1.dot(D_dmdc_disc_1[i])) + (B_disc_1.dot(u))  
+        x = A_disc_step.shape[0]
+        y = A_disc_step.shape[1]
+        x = np.linspace(0, x, x)
+        y = np.linspace(0, y, y)
+        #make_plot(A_disc_step, x=y, y=x, title="A_disc_step nyq: " + str(nyq) + " step: " + str(step), figsize=(7.5, 5), xlabel = 'State', ylabel = 'Output')
 
-            x = A_disc_1.shape[0]
-            y = A_disc_1.shape[1]
-            x = np.linspace(0, x, x)
-            y = np.linspace(0, y, y)
-            #make_plot(A_disc_1, x=y, y=x, title=   'A_disc_1' + " nyq: " + str(nyq) + " step: " + str(step), figsize=(7.5, 5), xlabel = 'State', ylabel = 'Output')
-
-            x = A_disc_step.shape[0]
-            y = A_disc_step.shape[1]
-            x = np.linspace(0, x, x)
-            y = np.linspace(0, y, y)
-            #make_plot(A_disc_step, x=y, y=x, title="A_disc_step nyq: " + str(nyq) + " step: " + str(step), figsize=(7.5, 5), xlabel = 'State', ylabel = 'Output')
-
-            x = A_cont.shape[0]
-            y = A_cont.shape[1]
-            x = np.linspace(0, x, x)
-            y = np.linspace(0, y, y)
-            #make_plot(A_cont, x=y, y=x, title="A_cont nyq: " + str(nyq) + " step: " + str(step), figsize=(7.5, 5), xlabel = 'State', ylabel = 'Output')
-
-            #arr = A_disc_step.dot(D_dmdc_disc_1[i]) + B_disc_step.dot(u)
-            if arr.shape != expected_shape:
-                raise ValueError(
-                    f"Invalid shape: expected {expected_shape}, got {arr.shape}"
-                ) 
-            D_dmdc_disc_1.append(arr)
-            D_dmdc_A_disc_1.append(A_disc_1.dot(D_dmdc_disc_1[i]))
-            D_dmdc_B_disc_1.append(B_disc_1.dot(u))
-
-        D_dmdc_disc_1 = np.array(D_dmdc_disc_1).T
-        D_dmdc_A_disc_1 = np.array(D_dmdc_A_disc_1).T
-        D_dmdc_B_disc_1 = np.array(D_dmdc_B_disc_1).T
-        
-
-
-        #D_dmdc_A_disc_1 = dot(A_disc_1, D)
-        #D_dmdc_B_disc_1 = dot(B_disc_1, U)
-        #D_dmdc_disc_1 = D_dmdc_A_disc_1 + D_dmdc_B_disc_1
+        x = A_cont.shape[0]
+        y = A_cont.shape[1]
+        x = np.linspace(0, x, x)
+        y = np.linspace(0, y, y)
+        #make_plot(A_cont, x=y, y=x, title="A_cont nyq: " + str(nyq) + " step: " + str(step), figsize=(7.5, 5), xlabel = 'State', ylabel = 'Output')
 
 
         '''
-        plt.figure(figsize=(16,6))
-        x = np.linspace(0, D_dmdc_A_disc_1.shape[1], D_dmdc_A_disc_1.shape[1])
-        plt.plot(x, D_dmdc_A_disc_1[0,:], label='D_dmdc_A level: ' + str(level))
-        plt.legend()
-        plt.show() 
-        '''                       
+        Now the algorithm have the matrices A and B to compute the reconstructed matrix for the node (DMDc object). 
+        The reconstruction for one node starts from the initial conditions (delcared as an array). This array will become a matrix after the reconstruction code block
+        '''
 
-        #save the continuous system to see zeros poles for every level
-        dmdc.sys_cont = sys_cont
+       #parameters of the reconstruction
+        D_dmdc0 = [D[:, 0]].copy()
+
+        D_dmdc_A = D_dmdc0.copy()    
+        D_dmdc_B = [] 
+
+        #number of rows expected after the reconstruction
+        expected_shape = D_dmdc0[0].shape
+        
+
+        #the reconstruction continue with the calculation about data and inputs like DMDc algorithm 
+        #but with the difference that the reconstrution is with all inputs and not only subsampled inputs
+        #data[i] represents the i-th instant of the state data, u represents the i-th instant of the input data
+
+
+
+
+        '''reconstrcution with A and B with dt = step'''
+        if reconstruction == 1:
+            for i, u in enumerate(U[:,1:].T):            
+
+                d_succ = A_disc_step.dot(D_dmdc0[i]) + B_disc_step.dot(u)
+
+                if d_succ.shape != expected_shape:
+                    raise ValueError(
+                        f"Invalid shape: expected {expected_shape}, got {d_succ.shape}"
+                    ) 
+                D_dmdc0.append(d_succ)
+                D_dmdc_A.append(A_disc_step.dot(D_dmdc0[i]))
+                D_dmdc_B.append(B_disc_step.dot(u))
+
+            D_dmdc0 = np.array(D_dmdc0).T
+            D_dmdc_A = np.array(D_dmdc_A).T
+            D_dmdc_B = np.array(D_dmdc_B).T
+
+
+
+
+
+
+        '''Reconstruction with A and B with dt = 1'''
+        if reconstruction == 2:
+            for i, u in enumerate(U[:,1:].T):        
+
+                d_succ = ((A_disc_1.dot(D_dmdc0[i]) + B_disc_1.dot(u)))
+
+                if d_succ.shape != expected_shape:
+                    raise ValueError(
+                        f"Invalid shape: expected {expected_shape}, got {d_succ.shape}"
+                    ) 
+                D_dmdc0.append(d_succ)
+                D_dmdc_A.append(A_disc_1.dot(D_dmdc0[i]))
+                D_dmdc_B.append(B_disc_1.dot(u))
+
+            D_dmdc0 = np.array(D_dmdc0).T
+            D_dmdc_A = np.array(D_dmdc_A).T
+            D_dmdc_B = np.array(D_dmdc_B).T
+
         #save discrete system with dt = 1
         dmdc.sys_disc_1 = sys_disc_1
 
 
 
-    else:
-        #reassignments of A,B are made in case no SLOW features are found
-        D_dmdc_A_disc_1 = np.zeros([D.shape[0], D.shape[1]], dtype='complex')
-        D_dmdc_B_disc_1 = np.zeros([D.shape[0], D.shape[1]], dtype='complex')
 
-        D_dmdc_disc_1 = np.zeros([D.shape[0], D.shape[1]], dtype='complex')
+
+
+
+
+        '''Reconstruction with forced responce (work in progress)'''
+        if reconstruction == 3:
+
+            D_dmdc0 = D[:,0]
+
+            t_train = np.linspace(1, D.shape[1], D.shape[1])
+            sys_disc_step_control = ct.StateSpace(A_disc_step, B_disc_step, C_disc, D_disc, dt = 1)
+            time, D_dmdc = ct.forced_response(sys_disc_step_control, T=None, U=U[:,1:], X0 = D_dmdc0, interpolate = False, transpose=False)
+
+            sys_disc_1_control = ct.StateSpace(A_disc_1, B_disc_1, C_disc_1, D_disc_1, dt = 1)
+            #time, D_dmdc = ct.forced_response(sys_disc_1_control, T=None, U=U, X0 = D_dmdc0, interpolate = False)
+
+            t_train = np.linspace(1, D.shape[1], D.shape[1])
+            sys_cont_control = ct.StateSpace(A_cont, B_cont, C_cont, D_cont)
+            #time, D_dmdc = ct.forced_response(sys_cont_control, T=t_train, U=U, X0 = D_dmdc0, interpolate = True)
+
+
+            '''
+            t_train = np.linspace(0,D.shape[1],D.shape[1])
+            plt.plot(t_train, D_dmdc[0,:], 'k', label='Forced response')
+            t_train = np.linspace(0,D.shape[1],D.shape[1])
+            plt.plot(t_train, D[0,:], 'b', label='Experimental data')
+            plt.legend()
+            plt.show()
+            '''
+            
+            '''
+            for i, u in enumerate(U[:,1:].T):      
+
+                u = u[: , np.newaxis]
+                #T=np.linspace(1,1 ,1)
+
+                time, d_succ = ct.forced_response(sys_disc_step_control, T=None, U=u, X0 = D_dmdc[i], interpolate = True)
+                
+                #time, D_dmdc = signal.dlsim(sys_disc_step_signal, u)
+
+
+                if d_succ.shape != expected_shape:
+                    raise ValueError(
+                        f"Invalid shape: expected {expected_shape}, got {d_succ.shape}"
+                    ) 
+                D_dmdc.append(d_succ)
+                D_dmdc_A.append(A_disc_1.dot(D_dmdc[i]))
+                D_dmdc_B.append(B_disc_1.dot(u))
+
+            D_dmdc = np.array(D_dmdc).T
+            D_dmdc_A = np.array(D_dmdc_A).T
+            D_dmdc_B = np.array(D_dmdc_B).T
+            '''
+            
+
+            # vars for the objective function for D (before subsampling)
+            Vand = np.vander(power(mu_SLOW_step, 1/step), bin_size, True)   ## vander() restituisce una matrice di Vandermonde, come paramentri
+                                                              ## vanno passati: un array 1-D (in questo caso mu elevato a potenza
+                                                              ## 1/1600), il numero di colonne dell'uscita e un valore booleano
+                                                              ## che indica l'incremento (se True allora le colonne saranno
+                                                              ## x^0, x^1, x^2... se False saranno x^(N-1), x^(N-2),...)
+                        
+            P = multiply(dot(Phi_SLOW_step.conj().T, Phi_SLOW_step), np.conj(dot(Vand, Vand.conj().T)))  ## multiply() serve per moltiplicare due array.
+                                                                                     ## in questo caso tra il [prodotto scalare della
+                                                                                 ## la congiunta di phi trasposta e phi] e 
+                                                                                 ## [la congiunta del prodotto scalare di Vand
+                                                                                 ## e la congiunta di Vand trasposta]
+            q = np.conj(diag(dot(dot(Vand, D.conj().T), Phi_SLOW_step)))    ##
+
+            # find optimal b solution
+            b_opt = solve(P, q).squeeze()                         ## b = P^-1 * q
+                                                              ## solve() trova le radici di P risolvendo per q
+
+            # time evolution
+            Psi = (Vand.T * b_opt).T                              ## Psi matrice (2,1600)
+        
+
+
+        
+      
+        
+
+
+    
+        
+        
+
+        
+        
+        
+
+
+
+
+
+
+
+
+
+        #save the continuous system to see zeros poles for every level
+        dmdc.sys_cont = sys_cont
+        
+        
+
+    else:
+        #reassignments of A,B are made in case no SLOW features are found   # zero time evolution
+        D_dmdc_A = np.zeros([D.shape[0], D.shape[1]], dtype='complex')
+        D_dmdc_B = np.zeros([D.shape[0], D.shape[1]], dtype='complex')
+
+        D_dmdc0 = np.zeros([D.shape[0], D.shape[1]], dtype='complex')
+
+        b_opt = np.array([], dtype='complex')
+        Psi = np.zeros([0, bin_size], dtype='complex')
 
    
-    dmdc.D_dmdc_A_disc_1 = D_dmdc_A_disc_1
-    dmdc.D_dmdc_B_disc_1 = D_dmdc_B_disc_1
+    dmdc.D_dmdc_A_disc_1 = D_dmdc_A
+    dmdc.D_dmdc_B_disc_1 = D_dmdc_B
+
+    
+    if reconstruction == 3:
+        # dmd reconstruction
+        free_evolution = dot(Phi_SLOW_step, Psi)
+        #D_dmdc =  free_evolution + D_dmdc
+    
 
 
 
@@ -901,11 +1071,25 @@ def mrdmdc(D, U, number_node, level=0, bin_num=0, offset=0, max_levels=20, max_c
     #plt.legend()
     #plt.show()
 
-    # remove influence of slow modes
-    D = D - D_dmdc_disc_1                                                   
-   
+    #x = np.linspace(0, D.shape[1], forced_discrete_response.shape[1])
+    #plt.plot(x, forced_discrete_response[0,:], 'orange', label='Forced discrete response')
+    #plt.plot(t_train, forced_discrete_step_response[0,:], 'orange', label='Forced discrete response')
+    #plt.plot(time_1, forced_discrete_1_response[0,:], 'red', label='Forced discrete 1 response')
+    #plt.plot(time_cont, forced_continue_response[0,:], 'k', label='Forced continue response')
+    #plt.plot(time_step, forced_discrete_step_response[0,:], 'orange', label='Forced discrete step response')    
+    #plt.plot(t_train, D[0,:], 'b', label='Experimental data')
+    #plt.plot(t_train, D_dmdc[0,:], 'green', label='Free + Forced evolution')
+    #plt.plot(t_train, free_evolution[0,:], 'red', label='Free evolution')
+    #plt.legend()
+    #plt.show()
+    
+
+
+    # remove influence of slow modes                                              
+    D = D - D_dmdc
+
     #save matrix for the reconstruction
-    dmdc.dato = D_dmdc_disc_1
+    dmdc.dato = D_dmdc
 
     #save eigenvalues and modes with dt = step
     dmdc.mu_SLOW_step = mu_SLOW_step
@@ -914,14 +1098,33 @@ def mrdmdc(D, U, number_node, level=0, bin_num=0, offset=0, max_levels=20, max_c
     
 
 
+
+    '''
+    dmdc.level = level            # level of recursion
+    dmdc.bin_num = bin_num        # time bin number
+    dmdc.bin_size = bin_size      # time bin size
+    dmdc.start = offset           # starting index
+    dmdc.stop = offset + bin_size # stopping index
+    dmdc.step = step              # step size
+    dmdc.rho = rho                # frequency cutoff
+    dmdc.n = n                    # number of extracted modes
+    dmdc.mu = mu_SLOW_step                  # extracted eigenvalues
+    dmdc.Phi = Phi_SLOW_step                # extracted DMD modes
+    #dmdc.Psi = Psi                # extracted time evolution
+    '''
+
+    if reconstruction == 3:
+        dmdc.b_opt = b_opt            # extracted optimal b vector
+
+
+
     #the code will iterate splitting the data and input, stopping if level = max_levels or return when bin_size < nyq
     if level < max_levels:
-        split = floor(bin_size / 2) # where to split           ## ceil(x) approximate by excess
+        split = ceil(bin_size / 2) # where to split           ## ceil(x) approximate by excess
         nodes += mrdmdc(
             D[:,:split],
-            #U[:,:split],                          ##################################
-            U[:split],
-            number_node = number_node + 1,
+            U[:,:split],                          ##################################
+            #U[:split],
             level=level+1,
             bin_num=2*bin_num,
             offset=offset,
@@ -930,9 +1133,8 @@ def mrdmdc(D, U, number_node, level=0, bin_num=0, offset=0, max_levels=20, max_c
             )
         nodes += mrdmdc(
             D[:,split:],
-            #U[:,split:],                        #########################
-            U[split:],
-            number_node = number_node + 1,
+            U[:,split:],                        #########################
+            #U[split:],
             level=level+1,
             bin_num=2*bin_num+1,
             offset=offset+split,
@@ -944,8 +1146,47 @@ def mrdmdc(D, U, number_node, level=0, bin_num=0, offset=0, max_levels=20, max_c
     return nodes
 
 
-number_node = 0
-nodes = mrdmdc(D_train, U_train, number_node)
+nodes = mrdmdc(D_train, U_train)
+
+
+
+
+
+
+
+def stitch(nodes, level):
+
+    # get length of time dimension
+    start = min([nd.start for nd in nodes])
+    stop = max([nd.stop for nd in nodes])
+    t = stop - start
+
+    # extract relevant nodes
+    nodes = [n for n in nodes if n.level == level]
+    nodes = sorted(nodes, key=lambda n: n.bin_num)
+
+    # stack DMD modes
+    Phi = np.hstack([n.Phi for n in nodes])
+
+    # allocate zero matrix for time evolution
+    nmodes = sum([n.n for n in nodes])
+    Psi = np.zeros([nmodes, t], dtype='complex')
+
+    # copy over time evolution for each time bin
+    i = 0
+    for n in nodes:
+        _nmodes = n.Psi.shape[0]
+        Psi[i:i+_nmodes,n.start:n.stop] = n.Psi
+        i += _nmodes
+
+    return Phi,Psi
+
+
+
+
+
+
+
 
 
 
@@ -987,9 +1228,9 @@ def iteration_level(nodes):
 colors = plt.cm.rainbow(np.linspace(0, 1, iteration_level(nodes) + 1))
 
 #declare variable that filled up in the reconstruction
-D_mrdmdc = np.zeros([row_tot, column_train], dtype = complex)    
-D_mrdmdc_A = np.zeros([row_tot, column_train], dtype = complex)
-D_mrdmdc_B = np.zeros([row_tot, column_train], dtype = complex)
+D_mrdmdc = np.zeros([D_train.shape[0], D_train.shape[1]], dtype = complex)    
+D_mrdmdc_A = np.zeros([D_train.shape[0], D_train.shape[1]], dtype = complex)
+D_mrdmdc_B = np.zeros([D_train.shape[0], D_train.shape[1]], dtype = complex)
 
 for level in range(0 , iteration_level(nodes) + 1):
 
@@ -997,27 +1238,29 @@ for level in range(0 , iteration_level(nodes) + 1):
     nodes_level = [n for n in nodes if n.level == level]
     nodes_level = sorted(nodes_level, key=lambda n: n.bin_num)
 
+    #save step and nyq values, they can be seen in the plots
+    nyq = nodes_level[0].nyq
+    step = nodes_level[0].step
+
     #horizontal stack of reconstructed matrices of nodes with same level (stack reconstructed snapshots in order)
     D_mrdmdc_level_reconstruction = np.hstack([n.dato for n in nodes_level])
     
     #sum every reconstructed level 
     D_mrdmdc += D_mrdmdc_level_reconstruction
 
-    #save step and nyq values, they can be seen in the plots
-    nyq = nodes_level[0].nyq
-    step = nodes_level[0].step
-
     #plots of the reconstruction matrix and of the first column (during the reconstruction)
     x = D_mrdmdc.shape[0]
     y = D_mrdmdc.shape[1]
     x = np.linspace(0, x, x)
     y = np.linspace(0, y, y)
-    #make_plot(D_mrdmdc.T, x=x, y=y, title='levels 0-' + str(level) + " nyq: " + str(nyq) + " step: " + str(step), figsize=(7.5, 5))
-    #comparison(D_train, D_mrdmdc, level)
+    make_plot(D_mrdmdc.T, x=x, y=y, title= 'Reconstructed system, levels 0-' + str(level) + ", nyq: " + str(nyq) + ", step: " + str(step), xlabel = matrix_xlabel, ylabel = matrix_ylabel)
+    comparison(D_train, D_mrdmdc, level)
+
+
 
 
 #this part helps to see all reconstructed matrices of levels in one plot 
-D_mrdmdc = np.zeros([row_tot, column_train], dtype = complex)    
+D_mrdmdc = np.zeros([D_train.shape[0], D_train.shape[1]], dtype = complex)    
 plt.figure()
 
 for level in range(0 , iteration_level(nodes) + 1):
@@ -1028,18 +1271,22 @@ for level in range(0 , iteration_level(nodes) + 1):
 
     D_mrdmdc_level_reconstruction = np.hstack([n.dato for n in nodes_level])
 
-    plt.plot(t_train, D_mrdmdc_level_reconstruction[0,:], color=colors[level], label='D_mrdmdc level: ' + str(level))
+    plt.plot(t_train, D_mrdmdc_level_reconstruction[column_to_show,:], color=colors[level], label='D_mrdmdc level: ' + str(level))
 
     D_mrdmdc += D_mrdmdc_level_reconstruction
 
     nyq = nodes_level[0].nyq
     step = nodes_level[0].step
 
-plt.plot(t_train, D_mrdmdc[0,:], 'k', label='Reconstructed system')
+plt.plot(t_train, D_mrdmdc[column_to_show,:], 'k', label='Reconstructed system')
 
-plt.plot(t_train, D_train[0,:], 'g', label='Original system')
+plt.plot(t_train, D_train[column_to_show,:], 'g', label='Experiemental system')
+plt.xlabel(array_xlabel)
+plt.ylabel(array_ylabel)
+plt.title("Signal of each level state: x_" + str(column_to_show + 1))
 plt.legend()
 plt.show()
+
 
 
 #this part helps to see A*X and B*U of each levels
@@ -1075,14 +1322,18 @@ for level in range (0, iteration_level(nodes) + 1):
 plt.figure(figsize=(16, 6))
 
 plt.subplot(121)
-plt.title("Original system")
-plt.pcolor(D_train.real.T)
+plt.title('Experimental system')
+plt.pcolor(D_train.real.T, vmin = vmin, vmax = vmax)
 plt.colorbar()
+plt.xlabel(matrix_xlabel)
+plt.ylabel(matrix_ylabel)
 
 plt.subplot(122)
-plt.title("Reconstructed system")
-plt.pcolor(D_mrdmdc.real.T)
+plt.title('Reconstructed system')
+plt.pcolor(D_mrdmdc.real.T, vmin = vmin, vmax = vmax)
 plt.colorbar()
+plt.xlabel(matrix_xlabel)
+plt.ylabel(matrix_ylabel)
 
 plt.show()
 
@@ -1129,16 +1380,25 @@ print ("R2: ")
 print(R2(D_mrdmdc.real.T , D_train.real.T))
 
 
+#consider only one state to compare both
+D_state_train = D_train[column_to_show,:]
+D_mrDMDc_state = D_mrdmdc[column_to_show,:]
 
 plt.figure()
-plt.plot(t_train, D_train.real[0,:], 'b', label='Misura')
-plt.plot(t_train, D_mrdmdc.real[0,:], 'g', label='mrDMDc')
+plt.title(array_title)
+plt.plot(t_train, D_state_train.real, 'b', label='Experimental data')
+plt.plot(t_train, D_mrDMDc_state.real, 'g', label='DMDc reconstructed data')
+plt.xlabel(array_xlabel)
+plt.ylabel(array_ylabel)
 plt.legend()
 plt.show()
 
 plt.figure()
-error=np.array(D_train) - np.array(D_mrdmdc)
-plt.plot(t_train, error.real[0,:], 'b', label='Diff')
+plt.title(array_title)
+error=np.array(D_state_train) - np.array(D_mrDMDc_state.real)
+plt.plot(t_train, error, 'b', label='Error')
+plt.xlabel(array_xlabel)
+plt.ylabel('Error')
 plt.legend()
 plt.show()
 
