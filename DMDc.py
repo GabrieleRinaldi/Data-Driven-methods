@@ -1,0 +1,382 @@
+#matplotlib inline
+import matplotlib.pyplot as plt
+import numpy as np
+import scipy
+import math
+
+from pydmd import DMDc
+from sklearn.metrics import mean_squared_error
+#from pydmd.plotter import plot_eigs
+
+import numpy as np
+import matplotlib.pyplot as plt
+from numpy import dot, multiply, diag, power
+from numpy import pi, exp, sin, cos
+from numpy.linalg import inv, eig, pinv, solve
+from scipy.linalg import svd, svdvals
+from math import floor, ceil # python 3.x
+
+import scipy.io
+
+import csv
+
+
+''' DATASET:
+1 SRU dataset
+    # matrix plot
+    matrix_xlabel = 'Delayed state'; matrix_ylabel = 'Time (minute)'
+    # array plot (when the plot is of one state)
+    array_xlabel = 'Time (minute)'; array_ylabel = 'State'; array_title = 'State: x_' + str(column_to_show + 1)
+
+2 Syntetic Complex dataset with complete U matrix (200 x 7160)
+3 Syntetic Complex dataset with U[161,:] (fifth input with no delay)
+    # matrix plot
+    matrix_xlabel = 'State'; matrix_ylabel = 'Samples'
+    # array plot (when the plot is of one state)
+    array_xlabel = 'Samples'; array_ylabel = 'State'; array_title = 'State: x_' + str(column_to_show + 1)
+
+4 V2G dataset with state NOT delayed and inputs NOT delayed
+5 V2G datasets with state delayed and inputs NOT delayed
+6 V2G datasets with state delayed and inputs delayed
+
+dataset = 5
+    XU1_DMDc 1 meteo + aggregated
+    XU2_DMDc 1 aggregated
+    XU3_DMDc 1 meteo (no rhum_t) + aggregated
+    XU4_DMDc 1 meteo(no rhum_t)+aggregated(no holidays)
+    XU5_DMDc 1 aggregated(no holidays)
+
+dataset = 6 
+    XU1_DMDc meteo + aggregated
+    XU2_DMDc aggregated
+    XU3_DMDc meteo (no rhum_t) + aggregated
+    XU4_DMDc meteo(no rhum_t)+aggregated(no holidays)
+    XU5_DMDc aggregated(no holidays)
+
+    # matrix plot
+    matrix_xlabel = 'Available Aggregated Capacity'; matrix_ylabel = 'Samples (30 minutes)'
+    # array plot (when the plot is of one state)
+    array_xlabel = 'Samples (30 minutes)'; array_ylabel = 'AAC'; array_title = 'State: ACC_' + str(column_to_show + 1)
+'''
+
+#insert path in wich to load .mat files
+#load the training experimental file
+path_for_load_experimental_train =  'C:\\Users\\gabri\\Desktop\\Università\\Tirocinio\\Dataset experimental\\SRU.mat'
+#load the test experimental file
+path_for_load_experimental_test = None
+
+#insert path in which to save the csv files 
+#save the training reconstructed file
+path_for_save_reconstructed_train =  'C:\\Users\\gabri\\Desktop\\Università\\Tirocinio\\Dataset reconstructed\\Dataset DMDc\\SRU\\SRU_reconstructed_train.csv'
+#save the test reconstructed file
+path_for_save_reconstructed_test = None
+
+
+#this parameter is used to decide which column to show
+column_to_show = 0
+
+''':param svd_rank: the rank for the truncation; If 0, the method computes the optimal rank and uses it for truncation;
+ if positive interger, the method uses the argument for the truncation; if float between 0 and 1,the rank is the number 
+ of the biggest singular values that are needed to reach the 'energy' specified by `svd_rank`; if -1, the method does
+not compute truncation.'''
+svd_rank_set = -1
+
+# matrix plot
+matrix_xlabel = 'Delayed state'
+matrix_ylabel = 'Time (minute)'
+
+# array plot (when the plot is of one state)
+array_xlabel = 'Time (minute)'
+array_ylabel = 'State'
+array_title = 'State x_' + str(column_to_show + 1)
+
+
+
+
+
+
+
+
+
+
+'''from this moment on, nothing needs to be set'''
+
+#dataset for traininig
+D_mat = scipy.io.loadmat(path_for_load_experimental_train)
+D_mat_list = [[element for element in upperElement] for upperElement in D_mat['X']]
+U_mat_list = [[element for element in upperElement] for upperElement in D_mat['U']]
+D_train = np.array(D_mat_list)
+U_train = np.array(U_mat_list)
+
+vmax = np.amax(D_train)
+vmin = np.amin(D_train)
+
+#dataset for testing
+if path_for_load_experimental_test is not None:
+    D_mat = scipy.io.loadmat(path_for_load_experimental_test)
+
+    D_mat_list = [[element for element in upperElement] for upperElement in D_mat['Test']]
+    U_mat_list = [[element for element in upperElement] for upperElement in D_mat['Test']]
+
+    D_test = np.array(D_mat_list)[0,:]
+    D_test = D_test[:,np.newaxis].T
+    U_test = np.array(U_mat_list)[1:,1:]
+
+
+
+
+#number of rows of the dataset
+x_train = np.linspace(0, D_train.shape[0], D_train.shape[0])
+
+#number of columns of the dataset
+t_train = np.linspace(0, D_train.shape[1], D_train.shape[1])
+
+
+#this function allow to make plot like image (it is used to plot matrix values)
+def make_plot(X, x=None, y=None, title='', xlabel = None, ylabel = None, vmin = None, vmax = None, ticks = None):
+    """
+    Plot of the data X
+    """
+    plt.figure()
+    plt.title(title)
+    if vmin is not None:
+        CS = plt.pcolormesh(x, y, X, vmin = vmin, vmax = vmax, cmap= "viridis")
+    else:
+        plt.pcolor(X.real)
+    plt.colorbar()
+    if ticks is not None:
+        plt.xticks(np.arange(0, len(X[0]), ticks))
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    plt.show()
+
+
+make_plot(D_train.T, x=x_train, y=t_train, title = 'Training dataset', xlabel = matrix_xlabel, ylabel = matrix_ylabel)
+
+
+#plot of the state of the dataset selected
+plt.figure()
+plt.plot(t_train, D_train[column_to_show,:], 'g', label='Experimental data')
+plt.title(array_title)
+plt.xlabel(array_xlabel)
+plt.ylabel(array_ylabel)
+plt.legend()
+plt.show()
+
+
+
+
+
+
+
+
+U_train = U_train[:,1:]
+
+dmdc = DMDc(svd_rank = svd_rank_set)    
+
+dmdc.fit(D_train,U_train)
+
+result = dmdc.reconstructed_data() 
+
+DMDc_train_reconstruct = result[0]
+
+A = result[1]
+
+
+
+
+
+plt.figure(figsize=(16, 6))
+
+plt.subplot(121)
+plt.title('Experimental system')
+plt.pcolor(D_train.real.T, vmin = vmin, vmax = vmax)
+plt.colorbar()
+plt.xlabel(matrix_xlabel)
+plt.ylabel(matrix_ylabel)
+
+plt.subplot(122)
+plt.title('Reconstructed system')
+plt.pcolor(DMDc_train_reconstruct.real.T, vmin = vmin, vmax = vmax)
+plt.colorbar()
+plt.xlabel(matrix_xlabel)
+plt.ylabel(matrix_ylabel)
+
+plt.show()
+
+
+
+
+#consider only one state to compare both
+D_state_train = D_train[column_to_show,:]
+DMDc_state_reconstructed = DMDc_train_reconstruct[column_to_show,:]
+
+
+
+plt.figure()
+plt.title(array_title)
+plt.plot(t_train, D_state_train.real, 'b', label='Experimental data')
+plt.plot(t_train, DMDc_state_reconstructed.real, 'g', label='DMDc reconstructed data')
+plt.xlabel(array_xlabel)
+plt.ylabel(array_ylabel)
+plt.legend()
+plt.show()
+
+plt.figure()
+plt.title(array_title)
+error=np.array(D_state_train) - np.array(DMDc_state_reconstructed.real)
+plt.plot(t_train, error, 'b', label='Error')
+plt.xlabel(array_xlabel)
+plt.ylabel('Error')
+plt.legend()
+plt.show()
+
+
+from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error, r2_score, mean_squared_error
+
+def MSE(y_true, y_pred):
+    mse_value = mean_squared_error(np.array(y_true.real), np.array(y_pred.real))
+    return mse_value
+
+def MAPE (y_true,y_pred):   #MEAN ABSOLUTE PERCENTAGE ERROR
+    mape = mean_absolute_percentage_error(np.array(y_true.real), np.array(y_pred.real))
+    return mape
+
+def MAE(y_true, y_pred):     #MEAN ABSOLUTE ERROR
+    mae_value = mean_absolute_error(np.array(y_true.real), np.array(y_pred.real))
+    return mae_value
+
+def RMSE(y_true, y_pred):     #ROOT MEAN SQUARED ERROR
+    rmse_value = math.sqrt(MSE(y_true.real, y_pred.real))
+    return rmse_value
+
+def R2(y_true, y_pred):
+    r2_value = r2_score(np.array(y_true.real), np.array(y_pred.real))
+    return r2_value
+
+
+print("Train KPI:")
+print("MSE: ")
+print((MSE(DMDc_train_reconstruct.T,D_train.T)))
+print ("MAPE: ")
+print (MAPE(DMDc_train_reconstruct.T , D_train.T),"%")
+print ("MAE: ")
+print(MAE(DMDc_train_reconstruct.T , D_train.T))
+print ("RMSE: ")
+print(RMSE(DMDc_train_reconstruct.T , D_train.T))
+print ("R2: ")
+print(R2(DMDc_train_reconstruct.T , D_train.T))
+
+
+
+
+
+#show A and B of the model
+x = np.linspace(0, A.shape[0], A.shape[0])
+y = np.linspace(0, A.shape[1], A.shape[1])
+make_plot(A, x=y, y=x, title = 'Matrix A', xlabel = 'State', ylabel = 'Output')
+
+x = np.linspace(0, dmdc.B.shape[0], dmdc.B.shape[0])
+y = np.linspace(0, dmdc.B.shape[1], dmdc.B.shape[1])
+make_plot(dmdc.B, x=y, y=x, title = 'Matrix B', xlabel = 'Input', ylabel = 'Output')
+
+
+
+
+
+def writing_csv(path, data):
+    with open(path, 'w', newline='') as file_csv:
+        writer = csv.writer(file_csv)
+        writer.writerows(data)
+
+path_reconstructed_train_csv =  path_for_save_reconstructed_train
+writing_csv(path_reconstructed_train_csv, DMDc_train_reconstruct)
+
+
+
+
+'''Test of the model'''
+if path_for_load_experimental_test is not None:
+
+    vmin = np.amax(D_test)
+    vmax = np.amin(D_test)
+    
+    # D_test matrix plot
+    make_plot(D_test.T, x=x_train, y=t_train, title = 'Test dataset', xlabel = matrix_xlabel, ylabel = matrix_ylabel)
+
+    #plot of the state of the dataset selected
+    plt.figure()
+    plt.plot(t_train, D_test[column_to_show,:], 'g', label='Experimental data')
+    plt.title(array_title)
+    plt.xlabel(array_xlabel)
+    plt.ylabel(array_ylabel)
+    plt.legend()
+    plt.show()
+
+
+    #reconstruction test
+    DMDc_test_reconstruct = dmdc.reconstructed_data(U_test)
+
+
+    # comparison between experimental test and reconstructed test
+    plt.figure(figsize=(16, 6))
+
+    plt.subplot(121)
+    plt.title('Experimental system')
+    plt.pcolor(D_test.real.T, vmin = vmin, vmax = vmax)
+    plt.colorbar()
+    plt.xlabel(matrix_xlabel)
+    plt.ylabel(matrix_ylabel)
+
+    plt.subplot(122)
+    plt.title('Reconstructed system')
+    plt.pcolor(DMDc_test_reconstruct.real.T, vmin = vmin, vmax = vmax)
+    plt.colorbar()
+    plt.xlabel(matrix_xlabel)
+    plt.ylabel(matrix_ylabel)
+
+    plt.show()
+
+
+    # D_test state plot
+    D_state_test = DMDc_test_reconstruct[column_to_show,:]
+
+    plt.figure()
+    plt.title(array_title)
+    plt.plot(t_train, D_state_test, 'b', label='Experimental data')
+    plt.plot(t_train, DMDc_state_reconstructed.real, 'g', label='DMDc reconstructed data')
+    plt.xlabel(array_xlabel)
+    plt.ylabel(array_ylabel)
+    plt.legend()
+    plt.show()
+
+    plt.figure()
+    plt.title(array_title)
+    error=np.array(D_state_train) - np.array(DMDc_state_reconstructed.real)
+    plt.plot(t_train, error, 'b', label='Error')
+    plt.xlabel(array_xlabel)
+    plt.ylabel('Error')
+    plt.legend()
+    plt.show()
+
+
+    print("Test KPI:")
+    print("MSE: ")
+    print((mean_squared_error(DMDc_test_reconstruct.T,D_test.T)))
+    print ("MAPE: ")
+    print (MAPE(DMDc_test_reconstruct.T , D_test.T),"%")
+    print ("MAE: ")
+    print(MAE(DMDc_test_reconstruct.T , D_test.T))
+    print ("RMSE: ")
+    print(RMSE(DMDc_test_reconstruct.T , D_test.T))
+    print ("R2: ")
+    print(R2(DMDc_test_reconstruct.T , D_test.T))
+
+
+
+
+
+
+
+
+
