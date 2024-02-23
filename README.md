@@ -14,6 +14,7 @@ Installazione delle seguenti librerie:
   csv
 
 Installazione tramite comando: "pip install nome_libreria"
+Attenzione sklearn-metrics forse va installato con "pip install scikit-metrics"
 
 Dopo aver installato le librerie è possibile accedere al file dmdc cliccando con il tasto destro nel metodo fit o reconstructed_data e cliccando "go to definition". 
 
