@@ -20,6 +20,11 @@ import scipy.io
 
 import csv
 
+def writing_csv(path, data):
+    with open(path, 'w', newline='') as file_csv:
+        writer = csv.writer(file_csv)
+        writer.writerows(data)
+
 
 ''' DATASET:
 1 SRU dataset
@@ -61,15 +66,17 @@ dataset = 6
 
 #insert path in wich to load .mat files
 #load the training experimental file
-path_for_load_experimental_train =  'C:\\Users\\gabri\\Desktop\\Università\\Tirocinio\\Dataset experimental\\V2G\\stati ritardati ed ingressi ritardati\\Train\\XU1_DMDc.mat'
+path_for_load_experimental_train =  r'C:\Users\gabri\Desktop\Università\Tirocinio\Dataset experimental\V2G\Stato ritardato ed ingressi ritardati\Train\XU5_DMDc.mat'
 #load the test experimental file
-path_for_load_experimental_test = 'C:\\Users\\gabri\\Desktop\\Università\\Tirocinio\\Dataset experimental\\V2G\\stati ritardati ed ingressi ritardati\\Test\\XU1test_DMDc 1.mat'
+path_for_load_experimental_test = r'C:\Users\gabri\Desktop\Università\Tirocinio\Dataset experimental\V2G\Stato ritardato ed ingressi ritardati\Test\XU5test_DMDc 1.mat'
 
 #insert path in which to save the csv files 
 #save the training reconstructed file
-path_for_save_reconstructed_train =  'C:\\Users\\gabri\\Desktop\\Università\\Tirocinio\\Dataset reconstructed\\Dataset DMDc\\V2G\\Stati ritardati ed ingressi ritardati\\Train\\XU1_DMDc_reconstructed_train_meteo + aggregated.csv'
+path_for_save_reconstructed_train =  r'C:\Users\gabri\Desktop\Università\Tirocinio\Dataset reconstructed\Dataset DMDc\V2G\Stato ritardato ed ingressi ritardati\Train\XU5_DMDc'
+#join ->    _reconstructed_train.csv
 #save the test reconstructed file
-path_for_save_reconstructed_test = 'C:\\Users\\gabri\\Desktop\\Università\\Tirocinio\\Dataset reconstructed\\Dataset DMDc\\V2G\\Stati ritardati ed ingressi ritardati\\Test\\XU1_DMDc_reconstructed_test_meteo + aggregated.csv'                   
+path_for_save_reconstructed_test = r'C:\Users\gabri\Desktop\Università\Tirocinio\Dataset reconstructed\Dataset DMDc\V2G\Stato ritardato ed ingressi ritardati\Test\XU5_DMDc'   
+#join ->    _reconstructed_test.csv                
 
 
 #this parameter is used to decide which column to show
@@ -82,24 +89,14 @@ not compute truncation.'''
 svd_rank_set = -1
 
 # matrix plot
-matrix_xlabel = 'Delayed state'
-matrix_ylabel = 'Time (minute)'
+matrix_xlabel = 'Available Aggregated Capacity'
+matrix_ylabel = 'Samples (30 minutes)'
 
 # array plot (when the plot is of one state)
-array_xlabel = 'Time (minute)'
-array_ylabel = 'State'
-array_title = 'State x_' + str(column_to_show + 1)
+array_xlabel = 'Samples (30 minutes)'
+array_ylabel = 'AAC'
+array_title = 'State AAC_' + str(column_to_show + 1)
 
-
-
-
-
-
-
-
-
-
-'''from this moment on, nothing needs to be set'''
 
 #dataset for traininig
 D_mat = scipy.io.loadmat(path_for_load_experimental_train)
@@ -108,13 +105,6 @@ U_mat_list = [[element for element in upperElement] for upperElement in D_mat['U
 D_train = np.array(D_mat_list)
 U_train = np.array(U_mat_list)
 
-if D_train.shape[-1] == 0:
-        D_train = D_train[np.newaxis , :].T
-if U_train.shape[-1] == 0:
-    U_train = U_train[np.newaxis , :].T
-
-vmax = np.amax(D_train)
-vmin = np.amin(D_train)
 
 #dataset for testing
 if path_for_load_experimental_test is not None:
@@ -123,13 +113,33 @@ if path_for_load_experimental_test is not None:
     D_mat_list = [[element for element in upperElement] for upperElement in D_mat['X']]
     U_mat_list = [[element for element in upperElement] for upperElement in D_mat['U']]
 
-    D_test = np.array(D_mat_list)[:,:D_train.shape[1]]
-    U_test = np.array(U_mat_list)[:,:U_train.shape[1]]
+    D_test = np.array(D_mat_list)
+    U_test = np.array(U_mat_list)
 
-    if D_test.shape[-1] == 0:
-        D_test = D_test[np.newaxis , :].T
-    if U_test.shape[-1] == 0:
-        U_test = U_test[np.newaxis , :].T
+
+
+
+
+'''from this moment on, nothing needs to be set'''
+
+#if the data are an array 1-D with this instruction they became 2-D
+if len(D_train.shape) == 1:
+    D_train = D_train[: , np.newaxis].T
+if len(U_train.shape) == 1:
+    U_train = U_train[: , np.newaxis].T
+
+vmax = np.amax(D_train)
+vmin = np.amin(D_train)
+
+#dataset for testing
+if path_for_load_experimental_test is not None:
+   
+    #if the data are an array 1-D with this instruction they became 2-D
+    if len(D_test.shape) == 1:
+        D_test = D_test[:, np.newaxis].T
+    if len(U_test.shape) == 1:
+        U_test = U_test[:, np.newaxis].T
+
 
 
 
@@ -139,7 +149,7 @@ if D_train.shape[1] > U_train.shape[1]:
 else:
     U_train = U_train[:,:D_train.shape[1]]
 
-#eventually matrix D_train or U_train have different dimensions of columns (snapshots) and different dimension from Test matrix
+#eventually matricies D_train or U_train have different dimensions of columns (snapshots) and different dimension from Test matricies
 if path_for_load_experimental_test is not None:
     if D_test.shape[1] > U_test.shape[1]:
         D_test = D_test[:,:U_test.shape[1]]
@@ -200,14 +210,17 @@ dmdc = DMDc(svd_rank = svd_rank_set)
 
 dmdc.fit(D_train,U_train)
 
-result = dmdc.reconstructed_data() 
-
-DMDc_train_reconstructed = result[0]
-
-A = result[1]
+DMDc_train_reconstructed = dmdc.reconstructed_data(control_input = None) 
 
 
 
+#extraction of the matrix A calculation taken from the method reconstruction_data
+eigs = np.power(dmdc.eigs, dmdc.dmd_time["dt"] // dmdc.original_time["dt"])
+A = np.linalg.multi_dot([dmdc.modes, np.diag(eigs), np.linalg.pinv(dmdc.modes)])
+
+
+writing_csv( path_for_save_reconstructed_train + '_A.csv' , A.real)
+writing_csv(path_for_save_reconstructed_train + '_B.csv', dmdc.B.real)
 
 
 plt.figure(figsize=(16, 6))
@@ -278,39 +291,57 @@ def R2(y_true, y_pred):
 print("Train KPI:")
 print("MSE: ")
 print((MSE(DMDc_train_reconstructed.T,D_train.T)))
+print("{:.2e}".format(MSE(DMDc_train_reconstructed.T , D_train.T)))
+
 print ("MAPE: ")
-print (MAPE(DMDc_train_reconstructed.T , D_train.T),"%")
+print (MAPE(DMDc_train_reconstructed.T , D_train.T))
+print("{:.2e}".format(MAPE(DMDc_train_reconstructed.T , D_train.T)))
+
 print ("MAE: ")
 print(MAE(DMDc_train_reconstructed.T , D_train.T))
+print("{:.2e}".format(MAE(DMDc_train_reconstructed.T , D_train.T)))
+
 print ("RMSE: ")
 print(RMSE(DMDc_train_reconstructed.T , D_train.T))
+print("{:.2e}".format(RMSE(DMDc_train_reconstructed.T , D_train.T)))
+
 print ("R2: ")
 print(R2(DMDc_train_reconstructed.T , D_train.T))
+print("{:.2e}".format(R2(DMDc_train_reconstructed.T , D_train.T)))
 
 
 
 
 
 #show A and B of the model
-x = np.linspace(0, A.shape[0], A.shape[0])
-y = np.linspace(0, A.shape[1], A.shape[1])
-make_plot(A, x=y, y=x, title = 'Matrix A', xlabel = 'State', ylabel = 'Output')
 
-x = np.linspace(0, dmdc.B.shape[0], dmdc.B.shape[0])
-y = np.linspace(0, dmdc.B.shape[1], dmdc.B.shape[1])
-make_plot(dmdc.B, x=y, y=x, title = 'Matrix B', xlabel = 'Input', ylabel = 'Output')
+plt.figure(figsize=(16, 6))
+
+plt.subplot(121)
+plt.title('Matrix A')
+plt.pcolor(A.real)
+plt.colorbar()
+plt.xlabel('State')
+plt.ylabel('Output')
+
+plt.subplot(122)
+plt.title('Matrix B')
+plt.pcolor(dmdc.B)
+plt.colorbar()
+plt.xticks(np.linspace(0, dmdc.B.shape[1], (U_train.shape[0] // D_train.shape[0]) + 1))
+plt.xlabel('Input')
+plt.ylabel('Output')
+
+plt.show()
 
 
 
 
 
-def writing_csv(path, data):
-    with open(path, 'w', newline='') as file_csv:
-        writer = csv.writer(file_csv)
-        writer.writerows(data)
 
 
-writing_csv(path_for_save_reconstructed_train, DMDc_train_reconstructed.real)
+writing_csv(path_for_save_reconstructed_train + '_reconstructed_train.csv', DMDc_train_reconstructed.real)
+writing_csv(path_for_save_reconstructed_train + '_experimental_train.csv' , D_train.real)
 
 
 
@@ -339,7 +370,7 @@ if path_for_load_experimental_test is not None:
     U_test = U_test[:,1:]
 
     #reconstruction test
-    DMDc_test_reconstructed = dmdc.reconstructed_data(U_test)[0]
+    DMDc_test_reconstructed = dmdc.reconstructed_data(control_input=U_test)
 
 
     # comparison between experimental test and reconstructed test
@@ -384,17 +415,28 @@ if path_for_load_experimental_test is not None:
 
     print("Test KPI:")
     print("MSE: ")
-    print((mean_squared_error(DMDc_test_reconstructed.T.real,D_test.T.real)))
-    print ("MAPE: ")
-    print (MAPE(DMDc_test_reconstructed.T.real , D_test.T.real),"%")
-    print ("MAE: ")
-    print(MAE(DMDc_test_reconstructed.T.real , D_test.T.real))
-    print ("RMSE: ")
-    print(RMSE(DMDc_test_reconstructed.T.real , D_test.T.real))
-    print ("R2: ")
-    print(R2(DMDc_test_reconstructed.T.real , D_test.T.real))
+    print((MSE(DMDc_test_reconstructed.T,D_test.T)))
+    print("{:.2e}".format(MSE(DMDc_test_reconstructed.T , D_test.T)))
 
-    writing_csv(path_for_save_reconstructed_test, DMDc_train_reconstructed.real)
+    print ("MAPE: ")
+    print (MAPE(DMDc_test_reconstructed.T , D_test.T),"%")
+    print("{:.2e}".format(MAPE(DMDc_test_reconstructed.T , D_test.T)))
+
+    print ("MAE: ")
+    print(MAE(DMDc_test_reconstructed.T , D_test.T))
+    print("{:.2e}".format(MAE(DMDc_test_reconstructed.T , D_test.T)))
+
+    print ("RMSE: ")
+    print(RMSE(DMDc_test_reconstructed.T , D_test.T))
+    print("{:.2e}".format(RMSE(DMDc_test_reconstructed.T , D_test.T)))
+
+    print ("R2: ")
+    print(R2(DMDc_test_reconstructed.T , D_test.T))
+    print("{:.2e}".format(R2(DMDc_test_reconstructed.T , D_test.T)))
+
+
+    writing_csv(path_for_save_reconstructed_test + '_reconstructed_test.csv', DMDc_test_reconstructed.real)
+    writing_csv(path_for_save_reconstructed_test + '_experimental_test.csv', D_test.real)
 
 
 
