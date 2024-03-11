@@ -2,7 +2,7 @@ Parametri di impostazione.
 
 DMDc:
 
-• "column_to_show" che serve per decidere quale stato mostrare.
+• "column_to_show" che serve per decidere quale stato mostrare (se column_to_show = k viene mostrato lo stato k+1_esimo).
 
 • "svd_rank_set" serve per selezionare il valore da passare al metodo fit (-1 nessun troncamento, 0 troncamento ottimale, ecc...)
 
