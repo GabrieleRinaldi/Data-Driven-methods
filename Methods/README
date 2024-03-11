@@ -1,0 +1,32 @@
+Parametri di impostazione.
+
+DMDc:
+
+• "column_to_show" che serve per decidere quale stato mostrare.
+
+• "svd_rank_set" serve per selezionare il valore da passare al metodo fit (-1 nessun troncamento, 0 troncamento ottimale, ecc...)
+
+
+DMDc_k_step_ahead:
+
+• "column_to_show" che serve per decidere quale stato mostrare.
+
+• "svd_rank_set" serve per selezionare il valore da passare al metodo fit (-1 nessun troncamento, 0 troncamento ottimale, ecc...)
+
+• "sampling_time_hour" indica il tempo di campionamento all'ora
+
+• "predicition_k_hour" indica di quante ore vogliamo fare la previsione.
+
+
+mrDMDc:
+
+• "column_to_show" che serve per decidere quale stato mostrare.
+
+• "svd_rank_set" serve per selezionare il valore da passare al metodo fit (-1 nessun troncamento, 0 troncamento ottimale, ecc...)
+
+• "slow_feature_scale" modifica il raggio per la filtrazione delle dinamiche
+
+• "max_cycles_set" impostare il "max_cycles" per il metodo mrDMDc
+
+• "reconstruction" modifica del tipo di ricostruzione. 
+
