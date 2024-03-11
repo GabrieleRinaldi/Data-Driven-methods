@@ -26,56 +26,19 @@ def writing_csv(path, data):
         writer.writerows(data)
 
 
-''' DATASET:
-1 SRU dataset
-    # matrix plot
-    matrix_xlabel = 'Delayed state'; matrix_ylabel = 'Time (minute)'
-    # array plot (when the plot is of one state)
-    array_xlabel = 'Time (minute)'; array_ylabel = 'State'; array_title = 'State: x_' + str(column_to_show + 1)
-
-2 Syntetic Complex dataset with complete U matrix (200 x 7160)
-3 Syntetic Complex dataset with U[161,:] (fifth input with no delay)
-    # matrix plot
-    matrix_xlabel = 'State'; matrix_ylabel = 'Samples'
-    # array plot (when the plot is of one state)
-    array_xlabel = 'Samples'; array_ylabel = 'State'; array_title = 'State: x_' + str(column_to_show + 1)
-
-4 V2G dataset with state NOT delayed and inputs NOT delayed
-5 V2G datasets with state delayed and inputs NOT delayed
-6 V2G datasets with state delayed and inputs delayed
-
-dataset = 5
-    XU1_DMDc 1 meteo + aggregated
-    XU2_DMDc 1 aggregated
-    XU3_DMDc 1 meteo (no rhum_t) + aggregated
-    XU4_DMDc 1 meteo(no rhum_t)+aggregated(no holidays)
-    XU5_DMDc 1 aggregated(no holidays)
-
-dataset = 6 
-    XU1_DMDc meteo + aggregated
-    XU2_DMDc aggregated
-    XU3_DMDc meteo (no rhum_t) + aggregated
-    XU4_DMDc meteo(no rhum_t)+aggregated(no holidays)
-    XU5_DMDc aggregated(no holidays)
-
-    # matrix plot
-    matrix_xlabel = 'Available Aggregated Capacity'; matrix_ylabel = 'Samples (30 minutes)'
-    # array plot (when the plot is of one state)
-    array_xlabel = 'Samples (30 minutes)'; array_ylabel = 'AAC'; array_title = 'State: ACC_' + str(column_to_show + 1)
-'''
 
 #insert path in wich to load .mat files
 #load the training experimental file
-path_for_load_experimental_train =  r'C:\Users\gabri\Desktop\Università\Tirocinio\Dataset experimental\V2G\Stato ritardato ed ingressi ritardati\Train\XU5_DMDc.mat'
+path_for_load_experimental_train =  r'C:\Users\gabri\Desktop\Università\Tirocinio\Dataset\Dataset experimental\SRU.mat'
 #load the test experimental file
-path_for_load_experimental_test = r'C:\Users\gabri\Desktop\Università\Tirocinio\Dataset experimental\V2G\Stato ritardato ed ingressi ritardati\Test\XU5test_DMDc 1.mat'
+path_for_load_experimental_test = None#r'C:\Users\gabri\Desktop\Università\Tirocinio\Dataset experimental\V2G\Stato ritardato ed ingressi ritardati\Test\XU5test_DMDc 1.mat'
 
 #insert path in which to save the csv files 
 #save the training reconstructed file
-path_for_save_reconstructed_train =  r'C:\Users\gabri\Desktop\Università\Tirocinio\Dataset reconstructed\Dataset DMDc\V2G\Stato ritardato ed ingressi ritardati\Train\XU5_DMDc'
-#join ->    _reconstructed_train.csv
+path_for_save_reconstructed_train =  r'C:\Users\gabri\Desktop\Università\Tirocinio\Dataset\Dataset reconstructed\Dataset DMDc\SRU\SRU'
+
 #save the test reconstructed file
-path_for_save_reconstructed_test = r'C:\Users\gabri\Desktop\Università\Tirocinio\Dataset reconstructed\Dataset DMDc\V2G\Stato ritardato ed ingressi ritardati\Test\XU5_DMDc'   
+path_for_save_reconstructed_test = None#r'C:\Users\gabri\Desktop\Università\Tirocinio\Dataset reconstructed\Dataset DMDc\V2G\Stato ritardato ed ingressi ritardati\Test\XU5_DMDc'   
 #join ->    _reconstructed_test.csv                
 
 
@@ -89,13 +52,13 @@ not compute truncation.'''
 svd_rank_set = -1
 
 # matrix plot
-matrix_xlabel = 'Available Aggregated Capacity'
-matrix_ylabel = 'Samples (30 minutes)'
+matrix_xlabel = 'Delayed State'
+matrix_ylabel = 'Time (minute)'
 
 # array plot (when the plot is of one state)
-array_xlabel = 'Samples (30 minutes)'
-array_ylabel = 'AAC'
-array_title = 'State AAC_' + str(column_to_show + 1)
+array_xlabel = 'Time (minute)'
+array_ylabel = 'State'
+array_title = 'State x_' + str(column_to_show + 1)
 
 
 #dataset for traininig
