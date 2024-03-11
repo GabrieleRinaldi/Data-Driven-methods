@@ -19,3 +19,15 @@ Per l'utilizzo dei metodi abbiamo bisogno di installare le seguenti librerie:
 I file non devono essere messi nella stessa cartella della libreria pydmd.
 
 
+Per selezionare un dataset è necessario scrivere il percorso nelle variabili dedicate, rispettivamente nominate:
+
+•	"path_for_load_experimental_train" dove vengono caricati i dati sperimentali nei quali si vuole applicare il metodo Data-Driven per il train   
+
+•	"path_for_load_experimental_test" dove vengono caricati i dati sperimentali per il test del metodo Data-Driven
+ 
+•	"path_for_save_reconstructed_train" dove vengono salvati i dati di train ricostruiti dal metodo Data-Driven.
+
+•	"path_for_save_reconstructed_test" dove vengono salvati i dati di test ricostruiti dal metodo Data-Driven.
+
+
+
