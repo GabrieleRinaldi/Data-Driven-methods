@@ -1,0 +1,11 @@
+Per il V2G abbiamo diversi file che variano in base agli ingressi che si vogliono selezionare:
+
+• "XU1" ingressi: meteo + aggregated
+
+• "XU2" ingressi: aggregated
+
+• "XU3" ingressi: meteo (no rhum_t) + aggregated
+
+• "XU4" ingressi: meteo (no rhum_t) + aggregated (no holidays)
+
+• "XU5" ingressi: aggregated (no holidays)
